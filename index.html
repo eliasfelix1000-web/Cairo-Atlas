@@ -1387,6 +1387,73 @@ main.sections { display: block; }
 <script>
 'use strict';
 
+/* ============================================================================
+ * CĀIRO Atlas v0.1 — single-file dashboard
+ *
+ * High-level layout of this <script>:
+ *   1. Error handling + safe DOM helpers (this section)
+ *   2. ATLAS — rate-limited MCP API orchestrator + logger
+ *   3. Tool constants (Shopify / Metricool MCP names)
+ *   4. STATE — dashboard state (range, refresh interval, cache, charts, sort)
+ *   5. Channel classifiers (utm_source/medium → channel bucket)
+ *   6. fetchAll() + buildCache() — data layer
+ *   7. Renderers — KPIs, tables, charts, funnel, content cards
+ *   8. CA — Creative Analysis (Motion API) state + renderers
+ *   9. refresh() / scheduleNext() / setRange() — orchestrator
+ *  10. DR — date range picker
+ *  11. CHAT — Cairo AI chat bubble
+ *  12. boot — wiring + init IIFE
+ *
+ * The OOP facade exposed on window.CairoAtlas (see end of script) bundles the
+ * stateful singletons (api, dashboard, chat, dateRange) so they can be poked
+ * from devtools without scrolling to find a function name. The procedural
+ * functions remain — the facade is a navigation aid, not a rewrite.
+ * ========================================================================== */
+
+// ================ Error handling — fail-loud, log-to-panel ================
+// Captures errors that escape try/catch so they show up in the #error-log
+// panel instead of dying silently in the devtools console.
+window.addEventListener('error', function (ev) {
+  try {
+    const where = (ev.filename || 'inline') + ':' + (ev.lineno || 0) + ':' + (ev.colno || 0);
+    const msg = (ev.error && ev.error.message) || ev.message || 'unknown error';
+    if (typeof atlasLog === 'function') atlasLog('error', 'window', msg, where);
+    else console.error('[window]', msg, where);
+  } catch (_e) { /* never let the error handler itself throw */ }
+});
+window.addEventListener('unhandledrejection', function (ev) {
+  try {
+    const reason = (ev.reason && (ev.reason.message || ev.reason.toString())) || 'unhandled rejection';
+    if (typeof atlasLog === 'function') atlasLog('error', 'promise', reason);
+    else console.error('[promise]', reason);
+  } catch (_e) {}
+});
+
+// Safe DOM lookup. Returns null and logs (instead of throwing on .textContent)
+// when the id is missing — protects every renderer from a single missing element.
+function $(id) {
+  const el = document.getElementById(id);
+  if (!el && typeof atlasLog === 'function') atlasLog('warn', 'dom', 'missing #' + id);
+  return el;
+}
+// Safe event-listener attach. Skips with a warn if the target is missing,
+// so one missing button can't abort the whole wiring chain.
+function on(id, ev, handler) {
+  const el = document.getElementById(id);
+  if (!el) { if (typeof atlasLog === 'function') atlasLog('warn', 'wire', 'missing #' + id + ' for ' + ev); return; }
+  el.addEventListener(ev, handler);
+}
+// Wrap a renderer call so one render failure doesn't kill the rest.
+function safeRender(name, fn) {
+  try { fn(); }
+  catch (e) {
+    const msg = (e && e.message) || String(e);
+    const trace = e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : null;
+    if (typeof atlasLog === 'function') atlasLog('error', name, msg, trace);
+    else console.error('[' + name + ']', e);
+  }
+}
+
 // ================ ATLAS — shared API orchestrator + logger ================
 const ATLAS = {
   api: {
@@ -3473,18 +3540,18 @@ async function refresh() {
       return;
     }
     updateDateLabel();
-    buildCache(data);
-    renderKpis();
-    renderVolumeChart();
-    renderChannelTable();
-    renderSourceTable();
-    renderMediumTable();
-    renderCampaignsTable();
-    renderMatrix();
-    renderCoverage();
-    renderFunnel();
-    renderContentFunnel();
-    renderPosts();
+    safeRender('buildCache',         () => buildCache(data));
+    safeRender('renderKpis',          renderKpis);
+    safeRender('renderVolumeChart',   renderVolumeChart);
+    safeRender('renderChannelTable',  renderChannelTable);
+    safeRender('renderSourceTable',   renderSourceTable);
+    safeRender('renderMediumTable',   renderMediumTable);
+    safeRender('renderCampaignsTable',renderCampaignsTable);
+    safeRender('renderMatrix',        renderMatrix);
+    safeRender('renderCoverage',      renderCoverage);
+    safeRender('renderFunnel',        renderFunnel);
+    safeRender('renderContentFunnel', renderContentFunnel);
+    safeRender('renderPosts',         renderPosts);
     STATE.lastRefreshedAt = new Date();
     setFreshness('fresh');
   } catch (e) {
@@ -3717,43 +3784,41 @@ function dpApply() {
   });
 }
 
-// Wire date picker events
-document.getElementById('daterange-btn').addEventListener('click', () => {
-  if (DR.open) closeDatePicker(); else openDatePicker();
-});
-document.getElementById('dr-presets').addEventListener('click', e => {
+// Wire date picker events (uses safe on(); missing element = warn, not throw)
+on('daterange-btn', 'click', () => { if (DR.open) closeDatePicker(); else openDatePicker(); });
+on('dr-presets', 'click', e => {
   const b = e.target.closest('button[data-range]');
   if (!b) return;
   closeDatePicker();
   setRange(b.dataset.range);
 });
-document.getElementById('dr-prev').addEventListener('click', () => {
+on('dr-prev', 'click', () => {
   DR.viewMonth--;
   if (DR.viewMonth < 0) { DR.viewMonth = 11; DR.viewYear--; }
   renderCalendar();
 });
-document.getElementById('dr-next').addEventListener('click', () => {
+on('dr-next', 'click', () => {
   DR.viewMonth++;
   if (DR.viewMonth > 11) { DR.viewMonth = 0; DR.viewYear++; }
   renderCalendar();
 });
-document.getElementById('dr-cal-grid').addEventListener('click', e => {
+on('dr-cal-grid', 'click', e => {
   const b = e.target.closest('button.dr-cal-day[data-iso]');
   if (!b || b.classList.contains('disabled')) return;
   dpPickDay(b.dataset.iso);
 });
-document.getElementById('dr-cal-grid').addEventListener('mouseover', e => {
+on('dr-cal-grid', 'mouseover', e => {
   const b = e.target.closest('button.dr-cal-day[data-iso]');
   if (!b || b.classList.contains('disabled')) return;
   dpHoverDay(b.dataset.iso);
 });
-document.getElementById('dr-cal-grid').addEventListener('mouseleave', () => {
+on('dr-cal-grid', 'mouseleave', () => {
   if (DR.hoverDay) { DR.hoverDay = null; renderCalendar(); }
 });
-document.getElementById('dr-cal-apply').addEventListener('click', dpApply);
+on('dr-cal-apply', 'click', dpApply);
 
-document.getElementById('interval-group').addEventListener('click', e => { const b = e.target.closest('button[data-interval]'); if (b) setIntervalSec(Number(b.dataset.interval)); });
-document.getElementById('pause-btn').addEventListener('click', () => setPaused(!STATE.paused));
+on('interval-group', 'click', e => { const b = e.target.closest('button[data-interval]'); if (b) setIntervalSec(Number(b.dataset.interval)); });
+on('pause-btn', 'click', () => setPaused(!STATE.paused));
 
 // Manual refresh — 20s cooldown, faked when on cooldown.
 const _MANUAL_COOLDOWN_MS = 20000;
@@ -3772,11 +3837,11 @@ async function manualRefresh() {
   await refresh();
   if (!STATE.paused) scheduleNext();
 }
-document.getElementById('refresh-btn').addEventListener('click', manualRefresh);
+on('refresh-btn', 'click', manualRefresh);
 
 // Sort click delegation on each table container
 ['channel-table', 'source-table', 'medium-table', 'campaigns-table'].forEach(id => {
-  document.getElementById(id).addEventListener('click', onSortClick);
+  on(id, 'click', onSortClick);
 });
 
 // ================ Claude chat (floating) ================
@@ -4037,45 +4102,111 @@ function clearChat() {
   if (STATE.cache.kpi) ensureSuggestions();
 }
 
-// Wire chat events
-document.getElementById('chat-fab').addEventListener('click', openChat);
-document.getElementById('chat-close').addEventListener('click', closeChat);
-document.getElementById('chat-clear').addEventListener('click', clearChat);
-document.getElementById('chat-send').addEventListener('click', () => sendChat());
-document.getElementById('chat-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
-});
-document.getElementById('chat-messages').addEventListener('click', e => {
-  const ex = e.target.closest('button.ex[data-ex]');
-  if (ex) sendChat(ex.dataset.ex);
-});
-// auto-grow textarea
-document.getElementById('chat-input').addEventListener('input', e => {
-  e.target.style.height = 'auto';
-  e.target.style.height = Math.min(100, e.target.scrollHeight) + 'px';
-});
-// size controls
-document.getElementById('chat-text-size').addEventListener('click', e => {
-  const b = e.target.closest('button[data-textsize]'); if (b) setChatTextSize(b.dataset.textsize);
-});
-document.getElementById('chat-win-size').addEventListener('click', e => {
-  const b = e.target.closest('button[data-winsize]'); if (b) setChatWinSize(b.dataset.winsize);
-});
+// Wire chat events (safe — missing element = warn, not throw)
+on('chat-fab',     'click',   openChat);
+on('chat-close',   'click',   closeChat);
+on('chat-clear',   'click',   clearChat);
+on('chat-send',    'click',   () => sendChat());
+on('chat-input',   'keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+on('chat-messages','click',   e => { const ex = e.target.closest('button.ex[data-ex]'); if (ex) sendChat(ex.dataset.ex); });
+on('chat-input',   'input',   e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(100, e.target.scrollHeight) + 'px'; });
+on('chat-text-size','click',  e => { const b = e.target.closest('button[data-textsize]'); if (b) setChatTextSize(b.dataset.textsize); });
+on('chat-win-size', 'click',  e => { const b = e.target.closest('button[data-winsize]'); if (b) setChatWinSize(b.dataset.winsize); });
 
 loadChat();
 setChatTextSize(CHAT.textSize);
 setChatWinSize(CHAT.winSize);
 
-// Rel-time tick
+// Rel-time tick — guard the DOM read so a missing #fresh-text doesn't throw on every cycle.
 setTimeout(function tick() {
   if (STATE.lastRefreshedAt && !STATE.paused) {
-    document.getElementById('fresh-text').textContent = 'fresh · ' + relTime(STATE.lastRefreshedAt);
+    const el = document.getElementById('fresh-text');
+    if (el) el.textContent = 'fresh · ' + relTime(STATE.lastRefreshedAt);
   }
   setTimeout(tick, 5000);
 }, 5000);
 
-// init
+// ================ Boot — class facade + init ================
+//
+// CairoAtlas is a thin OOP facade over the procedural code above. Each
+// subsystem (api, dashboard, chat, dateRange, charts) is a class wrapping its
+// existing state singleton + the functions that operate on it. The classes
+// add no behavior of their own — they exist so future Claude sessions (and
+// devtools) have a single navigable surface.
+//
+//   window.CairoAtlas.api.log('info','probe','hello')   // → atlasLog
+//   window.CairoAtlas.api.counters                       // → ATLAS.api.counters
+//   window.CairoAtlas.dashboard.refresh()                // → refresh()
+//   window.CairoAtlas.dashboard.setRange('7d')           // → setRange('7d')
+//   window.CairoAtlas.chat.open()                        // → openChat()
+//   window.CairoAtlas.chat.send('compare ig vs tt')      // → sendChat(...)
+//   window.CairoAtlas.dateRange.open()                   // → openDatePicker()
+//   window.CairoAtlas.charts                             // → STATE.charts
+//   window.CairoAtlas.logs                               // → ATLAS.logs (recent)
+
+class AtlasApi {
+  get logs()         { return ATLAS.logs; }
+  get counters()     { return ATLAS.api.counters; }
+  get inflight()     { return ATLAS.api.inflight; }
+  log(level, source, message, details) { return atlasLog(level, source, message, details); }
+  call(toolName, args, opts)           { return atlasApiCall(toolName, args, opts); }
+  raw(toolName, args)                  { return callTool(toolName, args); }
+}
+
+class Dashboard {
+  get state()        { return STATE; }
+  get cache()        { return STATE.cache; }
+  get range()        { return rangeToDates(); }
+  refresh()                  { return refresh(); }
+  scheduleNext()             { return scheduleNext(); }
+  setRange(r)                { return setRange(r); }
+  setIntervalSec(sec)        { return setIntervalSec(sec); }
+  setPaused(p)               { return setPaused(p); }
+  manualRefresh()            { return manualRefresh(); }
+  fetchAll()                 { return fetchAll(); }
+  buildCache(data)           { return buildCache(data); }
+}
+
+class ChatBubble {
+  get state()        { return CHAT; }
+  get history()      { return CHAT.history; }
+  get suggestions()  { return CHAT.suggestions; }
+  open()                     { return openChat(); }
+  close()                    { return closeChat(); }
+  clear()                    { return clearChat(); }
+  send(text)                 { return sendChat(text); }
+  ensureSuggestions()        { return ensureSuggestions(); }
+  invalidateSuggestions()    { return invalidateSuggestions(); }
+  setTextSize(s)             { return setChatTextSize(s); }
+  setWinSize(s)              { return setChatWinSize(s); }
+}
+
+class DateRangePicker {
+  get state()        { return DR; }
+  get isOpen()       { return DR.open; }
+  open()                     { return openDatePicker(); }
+  close()                    { return closeDatePicker(); }
+  apply()                    { return dpApply(); }
+  pickDay(iso)               { return dpPickDay(iso); }
+  hoverDay(iso)              { return dpHoverDay(iso); }
+  render()                   { return renderCalendar(); }
+}
+
+window.CairoAtlas = {
+  version: '0.1',
+  api: new AtlasApi(),
+  dashboard: new Dashboard(),
+  chat: new ChatBubble(),
+  dateRange: new DateRangePicker(),
+  get charts() { return STATE.charts; },
+  get logs()   { return ATLAS.logs; },
+  // Direct access to the underlying singletons for emergency debugging
+  _internals: { ATLAS, STATE, CHAT, DR, CA }
+};
+
+// init — each step independently guarded so one failure can't kill the rest.
 (function init() {
+  // 1. restore persisted preferences
   try {
     const sv = localStorage.getItem('cairo_utm_interval');
     if (sv) STATE.intervalSec = Number(sv) || 60;
@@ -4085,17 +4216,37 @@ setTimeout(function tick() {
     if (sr) STATE.range = sr;
     const sc = localStorage.getItem('cairo_utm_custom');
     if (sc) STATE.custom = JSON.parse(sc);
-  } catch (e) {}
-  document.querySelectorAll('#interval-group button').forEach(b => b.classList.toggle('active', String(b.dataset.interval) === String(STATE.intervalSec)));
-  document.getElementById('pause-btn').textContent = STATE.paused ? 'Resume' : 'Pause';
-  document.getElementById('pause-btn').classList.toggle('primary', STATE.paused);
-  updateDateLabel();
-  // Wire Creative Analysis load button (lives in the static empty-state HTML)
-  document.getElementById('ca-load-btn')?.addEventListener('click', caLoadAnalysis);
-  // Initial error-log render so the panel shows "No logs yet."
-  try { renderErrorLog(); } catch (_e) {}
+  } catch (e) { atlasLog('warn', 'init', 'localStorage restore failed: ' + (e && e.message)); }
+
+  // 2. paint topbar from restored prefs
+  safeRender('init.topbar', () => {
+    document.querySelectorAll('#interval-group button').forEach(b => b.classList.toggle('active', String(b.dataset.interval) === String(STATE.intervalSec)));
+    const pb = $('pause-btn');
+    if (pb) {
+      pb.textContent = STATE.paused ? 'Resume' : 'Pause';
+      pb.classList.toggle('primary', STATE.paused);
+    }
+    updateDateLabel();
+  });
+
+  // 3. lazy-load Creative Analysis (heavy — 7+ API calls — manual trigger)
+  on('ca-load-btn', 'click', caLoadAnalysis);
+
+  // 4. restore chat from localStorage + apply size prefs
+  safeRender('init.chat', () => {
+    loadChat();
+    setChatTextSize(CHAT.textSize);
+    setChatWinSize(CHAT.winSize);
+  });
+
+  // 5. paint the empty log panel so users see "No logs yet."
+  safeRender('init.errorLog', renderErrorLog);
+
+  // 6. boot complete — kick off the first refresh + auto-refresh loop
   atlasLog('info', 'init', 'CĀIRO Atlas v0.1 booted');
-  refresh().then(() => { if (!STATE.paused) scheduleNext(); });
+  refresh().then(() => {
+    if (!STATE.paused) scheduleNext();
+  }).catch(e => atlasLog('error', 'init', 'first refresh failed: ' + (e && e.message)));
 })();
 </script>
 </body>
