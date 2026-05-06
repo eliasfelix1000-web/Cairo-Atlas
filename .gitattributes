@@ -1,0 +1,22 @@
+# Force LF line endings everywhere — prevents Cowork's JSON meta block from
+# breaking when the file is cloned on Windows (autocrlf -> CRLF -> "\r\n}\r" at
+# the end of the meta block parses as invalid JSON in some runtimes).
+* text=auto eol=lf
+
+# Treat these as text always, never let autocrlf touch them.
+*.html  text eol=lf
+*.css   text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binaries — no normalization.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
