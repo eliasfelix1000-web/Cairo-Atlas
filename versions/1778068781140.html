@@ -1,0 +1,1455 @@
+<!doctype html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Cairo Live Funnel",
+  "schemaVersion": 1,
+  "description": "Live UTM tracker for CĀIRO. Pulls Shopify analytics with full UTM attribution on both sessions (utm_source/medium/campaign) and orders (order_utm_source/medium/campaign). Dark theme, sticky topbar, configurable date range (today/yesterday/7d/14d/30d/90d/MTD/custom). Sections: KPIs (sessions, UTM-tagged %, orders, revenue, CVR), volume timeseries chart, source breakdown table, medium breakdown table, top campaigns table, source × medium matrix heatmap, UTM coverage panel, funnel snapshot. Auto-refresh 60s default, configurable.",
+  "mcpTools": [
+    "mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query"
+  ],
+  "mcpServerNames": [
+    "Shopify"
+  ]
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CĀIRO · UTM tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #16130f;
+  --panel: #1c1916;
+  --panel-alt: #211d18;
+  --hover: #25211b;
+  --border: #2a2620;
+  --border-strong: #3a352d;
+  --text: #ebe4d3;
+  --text-2: #b9b0a0;
+  --muted: #8e8474;
+  --muted-2: #645b50;
+
+  /* Platform brand colors (flat) */
+  --p-meta: #1877f2;
+  --p-meta-soft: rgba(24, 119, 242, 0.13);
+  --p-fb: #1877f2;
+  --p-fb-soft: rgba(24, 119, 242, 0.13);
+  --p-ig: #e1306c;
+  --p-ig-soft: rgba(225, 48, 108, 0.13);
+  --p-tt: #ff0050;
+  --p-tt-soft: rgba(255, 0, 80, 0.13);
+  --p-google: #4285f4;
+  --p-google-soft: rgba(66, 133, 244, 0.13);
+  --p-klaviyo: #ff6900;
+  --p-klaviyo-soft: rgba(255, 105, 0, 0.13);
+
+  /* Semantic medium colors */
+  --m-paid: #f59e0b;
+  --m-paid-soft: rgba(245, 158, 11, 0.13);
+  --m-organic: #10b981;
+  --m-organic-soft: rgba(16, 185, 129, 0.13);
+  --m-email: #8b5cf6;
+  --m-email-soft: rgba(139, 92, 246, 0.13);
+
+  /* Subtle brand accent — used very sparingly */
+  --accent: #c9a45a;
+  --accent-soft: rgba(201, 164, 90, 0.10);
+
+  /* Status */
+  --pos: #22c55e;
+  --neg: #ef4444;
+  --warn: #f59e0b;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.25);
+  --shadow: 0 1px 1px rgba(0,0,0,0.25);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+.wrap { max-width: 1320px; margin: 0 auto; padding: 14px 18px 36px; }
+
+/* ====== TOPBAR ====== */
+.topbar {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 16px;
+  position: sticky; top: 8px; z-index: 10;
+}
+.topbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 32px; }
+.topbar-row.date-row { padding-top: 6px; border-top: 1px solid var(--border); }
+
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: 3px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border-strong);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); font-weight: 700; font-size: 11px; letter-spacing: 0.6px;
+}
+.brand-title { font-weight: 600; letter-spacing: 0.1px; font-size: 14px; color: var(--text); }
+.brand-sub { color: var(--muted); font-size: 11px; }
+.spacer { flex: 1; }
+
+.controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fresh {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--muted);
+  padding: 4px 9px; border-radius: 3px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+}
+.fresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pos); }
+.fresh-dot.pulsing { animation: pulse 1.4s ease-in-out infinite; }
+.fresh-dot.stale { background: var(--neg); animation: none; }
+.fresh-dot.paused { background: var(--warn); animation: none; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pillbar {
+  display: inline-flex; align-items: center;
+  background: var(--panel-alt); border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px; gap: 1px;
+}
+.pillbar button {
+  border: none; background: transparent; color: var(--muted);
+  font: inherit; font-size: 11.5px; padding: 5px 9px; border-radius: 2px;
+  cursor: pointer; transition: color 0.12s ease, background 0.12s ease; font-weight: 500;
+}
+.pillbar button:hover { color: var(--text-2); }
+.pillbar button.active {
+  background: var(--hover);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.ctrl-btn {
+  border: 1px solid var(--border); background: var(--panel-alt);
+  color: var(--text-2); font: inherit; font-size: 11.5px;
+  padding: 5px 11px; border-radius: 3px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.ctrl-btn:hover { background: var(--hover); color: var(--text); border-color: var(--border-strong); }
+.ctrl-btn.primary { background: var(--accent); color: #15110d; border-color: var(--accent); font-weight: 600; }
+.ctrl-btn.primary:hover { filter: brightness(1.07); color: #15110d; }
+
+.daterange { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.daterange .label {
+  font-size: 11px; color: var(--accent); font-weight: 500;
+  padding: 4px 9px; background: var(--accent-soft); border-radius: 3px;
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+.custom-range { display: none; align-items: center; gap: 6px; }
+.custom-range.active { display: inline-flex; }
+.custom-range input[type=date] {
+  background: var(--panel-alt); color: var(--text); border: 1px solid var(--border);
+  padding: 4px 7px; border-radius: 3px; font: inherit; font-size: 11.5px;
+  color-scheme: dark;
+}
+
+h2 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--muted); font-weight: 600;
+  margin: 22px 4px 10px;
+}
+
+/* ====== KPI ====== */
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 720px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.funnel-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 880px) { .funnel-grid { grid-template-columns: repeat(2, 1fr); } }
+.kpi {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px; padding: 12px 14px 11px;
+  position: relative; overflow: hidden;
+  min-width: 0;
+}
+.kpi-label {
+  color: var(--muted); font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 1.1px; font-weight: 600;
+}
+.kpi-value {
+  font-size: 24px; font-weight: 600; letter-spacing: -0.4px;
+  margin-top: 4px; line-height: 1.05; color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.kpi-sub {
+  font-size: 11px; color: var(--muted); margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.4;
+  max-height: 2.8em;
+}
+.delta-pos { color: var(--pos); font-weight: 600; }
+.delta-neg { color: var(--neg); font-weight: 600; }
+.delta-flat { color: var(--muted); font-weight: 500; }
+
+/* ====== PANEL ====== */
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+@media (max-width: 980px) { .row { grid-template-columns: 1fr; } }
+.row-3 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; margin-top: 4px; }
+@media (max-width: 980px) { .row-3 { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px; padding: 14px 16px;
+  position: relative;
+}
+.panel h3 {
+  font-size: 12.5px; font-weight: 600; margin: 0 0 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--text);
+}
+.panel h3 .hint { font-weight: 400; color: var(--muted); font-size: 10.5px; letter-spacing: 0.2px; }
+
+.chart-wrap { position: relative; height: 240px; margin-top: 4px; }
+.chart-wrap.tall { height: 300px; }
+.chart-wrap.short { height: 180px; }
+.chart-legend {
+  display: flex; flex-wrap: wrap; gap: 16px;
+  font-size: 11px; color: var(--text-2);
+  margin-top: 10px; padding: 0 4px;
+  align-items: center;
+}
+.chart-legend .ldot {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 50%; margin-right: 7px;
+  vertical-align: middle;
+}
+.chart-legend .lline {
+  display: inline-block; width: 16px; height: 2px;
+  margin-right: 7px; vertical-align: middle;
+  border-radius: 2px;
+}
+.chart-legend .muted-note { color: var(--muted); margin-left: auto; font-size: 10.5px; }
+
+/* ====== TABLES ====== */
+table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.tbl th, table.tbl td {
+  text-align: right; padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+table.tbl th:first-child, table.tbl td:first-child { text-align: left; }
+table.tbl th {
+  font-weight: 500; color: var(--muted); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.9px;
+  border-bottom: 1px solid var(--border-strong);
+  padding-bottom: 8px;
+}
+table.tbl th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s ease;
+}
+table.tbl th.sortable:hover { color: var(--text-2); }
+table.tbl th.sort-active { color: var(--text); }
+table.tbl th .sort-arrow {
+  display: inline-block; width: 10px; margin-left: 3px;
+  color: var(--accent); font-size: 9px; line-height: 1;
+  font-weight: 700;
+}
+table.tbl tbody tr { transition: background 0.1s ease; }
+table.tbl tbody tr:hover { background: var(--hover); }
+table.tbl tbody tr.totalrow td {
+  border-top: 1px solid var(--border-strong); border-bottom: none;
+  padding-top: 9px; font-weight: 600; color: var(--text);
+}
+.bar-cell { position: relative; min-width: 110px; }
+.bar-cell .v { display: block; font-variant-numeric: tabular-nums; }
+.bar-track {
+  position: relative; height: 2px; background: var(--panel-alt);
+  border-radius: 1px; margin-top: 5px; overflow: hidden;
+}
+.bar-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px;
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.swatch { display: inline-block; width: 8px; height: 8px; border-radius: 1px; margin-right: 8px; vertical-align: middle; }
+.tag {
+  display: inline-block; font-size: 10.5px; padding: 2px 7px;
+  border-radius: 2px; background: var(--panel-alt); color: var(--text-2);
+  border: 1px solid var(--border); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px; line-height: 1.4;
+}
+.tag.muted { color: var(--muted); }
+.tag.paid { background: var(--m-paid-soft); color: var(--m-paid); border-color: rgba(245, 158, 11, 0.25); }
+.tag.organic { background: var(--m-organic-soft); color: var(--m-organic); border-color: rgba(16, 185, 129, 0.25); }
+.tag.email { background: var(--m-email-soft); color: var(--m-email); border-color: rgba(139, 92, 246, 0.25); }
+.tag.ig { background: var(--p-ig-soft); color: var(--p-ig); border-color: rgba(225, 48, 108, 0.25); }
+.tag.fb { background: var(--p-fb-soft); color: var(--p-fb); border-color: rgba(24, 119, 242, 0.25); }
+.tag.tt { background: var(--p-tt-soft); color: var(--p-tt); border-color: rgba(255, 0, 80, 0.25); }
+
+.cvr-pill {
+  display: inline-block; padding: 1px 7px; border-radius: 2px;
+  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+}
+.cvr-good { background: rgba(34, 197, 94, 0.13); color: var(--pos); border-color: rgba(34, 197, 94, 0.25); }
+.cvr-mid  { background: rgba(245, 158, 11, 0.13); color: var(--warn); border-color: rgba(245, 158, 11, 0.25); }
+.cvr-low  { background: rgba(239, 68, 68, 0.13); color: var(--neg); border-color: rgba(239, 68, 68, 0.25); }
+.cvr-zero { background: var(--panel-alt); color: var(--muted); border-color: var(--border); }
+
+/* ====== MATRIX ====== */
+.matrix-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.matrix-table th, .matrix-table td {
+  padding: 6px 7px; text-align: center; font-variant-numeric: tabular-nums;
+}
+.matrix-table th { color: var(--muted); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.8px; }
+.matrix-table th:first-child, .matrix-table td:first-child { text-align: left; color: var(--text-2); font-weight: 500; }
+.matrix-cell {
+  border-radius: 2px; padding: 4px 7px;
+  display: inline-block; min-width: 30px;
+}
+
+/* ====== UTM COVERAGE ====== */
+.coverage-bar {
+  height: 24px; border-radius: 2px; overflow: hidden;
+  background: var(--panel-alt); border: 1px solid var(--border);
+  display: flex; align-items: stretch;
+}
+.coverage-seg {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: rgba(0,0,0,0.78);
+  letter-spacing: 0.2px;
+  transition: flex 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.coverage-seg span { padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coverage-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px;
+  font-size: 11.5px; color: var(--text-2);
+}
+.coverage-legend .item { display: flex; align-items: center; gap: 6px; }
+
+/* ====== SKELETONS ====== */
+.skeleton { background: var(--panel-alt); border-radius: 4px; height: 14px; opacity: 0.6; animation: shimmer 1.4s infinite; }
+@keyframes shimmer { 0%,100% { opacity: 0.4; } 50% { opacity: 0.7; } }
+.empty {
+  padding: 22px; text-align: center; color: var(--muted); font-size: 12.5px;
+  border: 1px dashed var(--border-strong); border-radius: 3px;
+  background: var(--panel-alt);
+}
+.error {
+  padding: 12px; color: var(--neg); font-size: 12px;
+  background: rgba(239, 68, 68, 0.10); border: 1px solid rgba(239, 68, 68, 0.20); border-radius: 3px;
+}
+.foot { font-size: 11px; color: var(--muted); margin-top: 24px; padding: 10px 4px; line-height: 1.55; max-width: 1100px; }
+.foot code { background: var(--panel-alt); padding: 1px 5px; border-radius: 2px; font-size: 10.5px; color: var(--accent); border: 1px solid var(--border); }
+
+.cell-trunc { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="topbar">
+  <div class="topbar-row">
+    <div class="brand">
+      <div class="brand-mark">CĀ</div>
+      <div>
+        <div class="brand-title">CĀIRO · UTM tracker</div>
+        <div class="brand-sub" id="brand-sub">live channel attribution</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <span class="fresh" id="fresh">
+      <span class="fresh-dot pulsing" id="fresh-dot"></span>
+      <span id="fresh-text">loading…</span>
+    </span>
+    <div class="pillbar" id="interval-group" title="Refresh interval">
+      <button data-interval="15">15s</button>
+      <button data-interval="30">30s</button>
+      <button data-interval="60" class="active">60s</button>
+      <button data-interval="120">2m</button>
+    </div>
+    <button class="ctrl-btn" id="refresh-btn" title="Refresh now">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>
+      Refresh
+    </button>
+    <button class="ctrl-btn" id="pause-btn">Pause</button>
+  </div>
+  <div class="topbar-row date-row">
+    <span class="label" id="date-label">today</span>
+    <div class="pillbar" id="range-pills">
+      <button data-range="today" class="active">Today</button>
+      <button data-range="yesterday">Yesterday</button>
+      <button data-range="7d">7d</button>
+      <button data-range="14d">14d</button>
+      <button data-range="30d">30d</button>
+      <button data-range="90d">90d</button>
+      <button data-range="mtd">MTD</button>
+      <button data-range="custom">Custom</button>
+    </div>
+    <div class="custom-range" id="custom-range">
+      <input type="date" id="date-from">
+      <input type="date" id="date-to">
+      <button class="ctrl-btn primary" id="apply-custom">Apply</button>
+    </div>
+  </div>
+</div>
+
+<h2>At a glance</h2>
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-label">Sessions</div><div class="kpi-value" id="kpi-sessions">—</div><div class="kpi-sub" id="kpi-sessions-sub">—</div></div>
+  <div class="kpi"><div class="kpi-label">UTM-tagged</div><div class="kpi-value" id="kpi-tagged">—</div><div class="kpi-sub" id="kpi-tagged-sub">share with utm_source</div></div>
+  <div class="kpi"><div class="kpi-label">Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-sub" id="kpi-orders-sub">—</div></div>
+  <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-sub" id="kpi-revenue-sub">—</div></div>
+  <div class="kpi"><div class="kpi-label">Conv. rate</div><div class="kpi-value" id="kpi-cvr">—</div><div class="kpi-sub" id="kpi-cvr-sub">blended · AOV —</div></div>
+</div>
+
+<h2>Volume over the period</h2>
+<div class="panel">
+  <h3>Sessions &amp; orders <span class="hint" id="volume-hint">hourly · shop tz</span></h3>
+  <div class="chart-wrap tall"><canvas id="volume-chart"></canvas></div>
+  <div class="chart-legend">
+    <span><span class="lline" style="background:var(--accent)"></span>Sessions</span>
+    <span><span class="ldot" style="background:var(--pos); border: 2px solid var(--bg);"></span>Orders <span style="color:var(--muted); margin-left:4px;">· dot size = volume</span></span>
+    <span class="muted-note">hover for revenue</span>
+  </div>
+</div>
+
+<h2>Channel breakdown</h2>
+<div class="panel">
+  <h3>By channel <span class="hint">Sidekick-style bucketing · sortable</span></h3>
+  <div id="channel-table"><div class="skeleton" style="height: 200px;"></div></div>
+</div>
+
+<h2>UTM source &amp; medium</h2>
+<div class="row">
+  <div class="panel">
+    <h3>By UTM source <span class="hint">sortable</span></h3>
+    <div id="source-table"><div class="skeleton" style="height: 160px;"></div></div>
+  </div>
+  <div class="panel">
+    <h3>By UTM medium <span class="hint">sortable</span></h3>
+    <div id="medium-table"><div class="skeleton" style="height: 160px;"></div></div>
+  </div>
+</div>
+
+<h2>Top campaigns</h2>
+<div class="panel">
+  <h3>Source / medium / campaign <span class="hint">top 15 · sortable</span></h3>
+  <div id="campaigns-table"><div class="skeleton" style="height: 200px;"></div></div>
+</div>
+
+<h2>Source × medium matrix</h2>
+<div class="row-3">
+  <div class="panel">
+    <h3>Session matrix <span class="hint">cell intensity = relative volume</span></h3>
+    <div id="matrix-table"><div class="skeleton" style="height: 160px;"></div></div>
+  </div>
+  <div class="panel">
+    <h3>UTM coverage <span class="hint">where the traffic is hiding</span></h3>
+    <div id="coverage"><div class="skeleton" style="height: 80px;"></div></div>
+  </div>
+</div>
+
+<h2>Funnel snapshot</h2>
+<div class="panel">
+  <h3>Sessions → cart → checkout → order <span class="hint">selected period</span></h3>
+  <div id="funnel-stages" class="funnel-grid">
+    <div class="kpi"><div class="kpi-label">Sessions</div><div class="kpi-value" id="fnl-0">—</div><div class="kpi-sub">starting volume</div></div>
+    <div class="kpi"><div class="kpi-label">Cart adds</div><div class="kpi-value" id="fnl-1">—</div><div class="kpi-sub" id="fnl-1-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">Reached checkout</div><div class="kpi-value" id="fnl-2">—</div><div class="kpi-sub" id="fnl-2-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">Completed</div><div class="kpi-value" id="fnl-3">—</div><div class="kpi-sub" id="fnl-3-sub"></div></div>
+  </div>
+</div>
+
+<div class="foot">
+  Sources: Shopify <code>run-analytics-query</code> — sessions (<code>utm_source</code>, <code>utm_medium</code>, <code>utm_campaign</code>, <code>referrer_source</code>, <code>referrer_name</code>) and sales (<code>order_utm_*</code>, <code>referring_channel</code>). Channel buckets follow Sidekick conventions: Meta paid is utm_source ∈ (meta/fb/ig) with paid medium; Instagram/TikTok/Facebook organic require utm_medium = social_organic; Klaviyo email matches referrer_source = email; Google organic (SEO) matches referrer_source = search. Direct = no UTM, no qualifying referrer. Other = anything that doesn't match. Dates in shop timezone (Europe/Stockholm). Shopify analytics lags 5–15 minutes — current-day numbers settle as hours close.
+</div>
+
+</div>
+
+<script>
+'use strict';
+
+const TOOL_SHOPIFY = 'mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query';
+const SHOP_TZ = 'Europe/Stockholm';
+
+const STATE = {
+  range: 'today',
+  custom: { from: null, to: null },
+  intervalSec: 60,
+  paused: false,
+  timer: null,
+  lastRefreshedAt: null,
+  charts: { volume: null },
+  sort: {
+    channel:   { col: 'rev',  dir: 'desc' },
+    source:    { col: 'rev',  dir: 'desc' },
+    medium:    { col: 'rev',  dir: 'desc' },
+    campaigns: { col: 'rev',  dir: 'desc' }
+  },
+  cache: {
+    channel: [], source: [], medium: [], campaigns: [],
+    matrix: null, coverage: null, kpi: null, funnel: null, volume: null
+  }
+};
+
+// ================ helpers ================
+function fmtInt(n) { return new Intl.NumberFormat('en-GB').format(Math.round(Number(n) || 0)); }
+function fmtMoney(n) {
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(n) || 0);
+}
+function fmtPct(n, dp) { dp = (dp == null) ? 2 : dp; return ((Number(n) || 0) * 100).toFixed(dp) + '%'; }
+function fmtPctRaw(n, dp) { dp = (dp == null) ? 2 : dp; return (Number(n) || 0).toFixed(dp) + '%'; }
+function dateStr(d) { return new Intl.DateTimeFormat('en-CA', { timeZone: SHOP_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); }
+function addDays(d, n) { return new Date(d.getTime() + n * 86400000); }
+function shortLabel(iso) { return new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, month: 'short', day: 'numeric' }).format(new Date(iso)); }
+function hourLabel(iso) { return new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)); }
+function dayLabel(iso) { return new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, month: 'short', day: '2-digit' }).format(new Date(iso)); }
+function relTime(d) {
+  const s = Math.round((Date.now() - d) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + 'm ago';
+  return Math.round(m / 60) + 'h ago';
+}
+function cvrClass(cvr) {
+  if (!cvr) return 'cvr-zero';
+  if (cvr >= 3) return 'cvr-good';
+  if (cvr >= 1.5) return 'cvr-mid';
+  return 'cvr-low';
+}
+function safeText(s) { return String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+function nonEmpty(s) { return (s != null && String(s).length > 0); }
+
+// ---- channel + ordered channel definitions ----
+const CHANNEL_ORDER = [
+  'Meta paid', 'Direct', 'Instagram organic', 'Klaviyo email',
+  'Google organic (SEO)', 'TikTok organic', 'Other', 'Facebook organic'
+];
+
+const CHANNEL_COLOR = {
+  'Meta paid':            'var(--p-meta)',
+  'Direct':               'var(--muted-2)',
+  'Instagram organic':    'var(--p-ig)',
+  'Klaviyo email':        'var(--p-klaviyo)',
+  'Google organic (SEO)': 'var(--p-google)',
+  'TikTok organic':       'var(--p-tt)',
+  'Facebook organic':     'var(--p-fb)',
+  'Other':                'var(--muted-2)'
+};
+
+const SOURCE_COLOR = {
+  meta:      'var(--p-meta)',
+  fb:        'var(--p-fb)',
+  facebook:  'var(--p-fb)',
+  ig:        'var(--p-ig)',
+  instagram: 'var(--p-ig)',
+  tiktok:    'var(--p-tt)',
+  google:    'var(--p-google)',
+  klaviyo:   'var(--p-klaviyo)',
+  'Direct':  'var(--muted-2)',
+  'Other':   'var(--muted)'
+};
+
+const MEDIUM_COLOR = {
+  paid:           'var(--m-paid)',
+  paid_social:    'var(--m-paid)',
+  cpc:            'var(--m-paid)',
+  ppc:            'var(--m-paid)',
+  social:         'var(--p-ig)',
+  social_organic: 'var(--m-organic)',
+  organic:        'var(--m-organic)',
+  email:          'var(--m-email)',
+  'Direct':       'var(--muted-2)',
+  'Other':        'var(--muted)'
+};
+
+function bucketSessionChannel(src, med, refSrc, refName) {
+  const s = (src || '').toLowerCase();
+  const m = (med || '').toLowerCase();
+  const rs = (refSrc || '').toLowerCase();
+  const rn = (refName || '').toLowerCase();
+  const paidMed = ['paid', 'paid_social', 'paidsocial', 'cpc', 'ppc'].includes(m);
+  const metaSrc = ['meta', 'fb', 'ig', 'facebook', 'instagram'].includes(s);
+  if (metaSrc && paidMed) return 'Meta paid';
+  if (s === 'instagram' && (m === 'social_organic' || m === 'social' || m === 'organic')) return 'Instagram organic';
+  if (s === 'tiktok' && (m === 'social_organic' || m === 'social' || m === 'organic')) return 'TikTok organic';
+  if (s === 'facebook' && (m === 'social_organic' || m === 'social' || m === 'organic')) return 'Facebook organic';
+  if (rs === 'email') return 'Klaviyo email';
+  if (s === 'klaviyo' || m === 'email') return 'Klaviyo email';
+  if (rs === 'search' && (rn === 'google' || !rn)) return 'Google organic (SEO)';
+  if (s === 'google' && (m === 'organic' || !m)) return 'Google organic (SEO)';
+  if (rs === 'social' && rn === 'instagram' && !paidMed) return 'Instagram organic';
+  if (rs === 'social' && rn === 'tiktok' && !paidMed) return 'TikTok organic';
+  if (rs === 'social' && rn === 'facebook' && !paidMed) return 'Facebook organic';
+  if ((!s && !m) && (rs === 'direct' || !rs)) return 'Direct';
+  return 'Other';
+}
+
+function bucketOrderChannel(src, med, refChan) {
+  const s = (src || '').toLowerCase();
+  const m = (med || '').toLowerCase();
+  const rc = (refChan || '').toLowerCase();
+  const paidMed = ['paid', 'paid_social', 'paidsocial', 'cpc', 'ppc'].includes(m);
+  const metaSrc = ['meta', 'fb', 'ig', 'facebook', 'instagram'].includes(s);
+  if (metaSrc && paidMed) return 'Meta paid';
+  if (s === 'instagram' && (m === 'social_organic' || m === 'social' || m === 'organic')) return 'Instagram organic';
+  if (s === 'tiktok' && (m === 'social_organic' || m === 'social' || m === 'organic')) return 'TikTok organic';
+  if (s === 'facebook' && (m === 'social_organic' || m === 'social' || m === 'organic')) return 'Facebook organic';
+  if (rc === 'klaviyo' || m === 'email' || s === 'klaviyo') return 'Klaviyo email';
+  if (rc === 'google' && !paidMed) return 'Google organic (SEO)';
+  if (s === 'google' && (m === 'organic' || !m)) return 'Google organic (SEO)';
+  if (rc === 'instagram' && !paidMed) return 'Instagram organic';
+  if (rc === 'tiktok' && !paidMed) return 'TikTok organic';
+  if (rc === 'facebook' && !paidMed) return 'Facebook organic';
+  if (rc === 'direct' || (!s && !m && (!rc || rc === 'direct'))) return 'Direct';
+  return 'Other';
+}
+
+function rangeToDates() {
+  const t = new Date();
+  const r = STATE.range;
+  if (r === 'today') return { from: dateStr(t), to: dateStr(t), gran: 'hour', label: 'today' };
+  if (r === 'yesterday') { const y = addDays(t, -1); return { from: dateStr(y), to: dateStr(y), gran: 'hour', label: 'yesterday' }; }
+  if (r === '7d') { const f = addDays(t, -6); return { from: dateStr(f), to: dateStr(t), gran: 'day', label: shortLabel(f) + ' – ' + shortLabel(t) }; }
+  if (r === '14d') { const f = addDays(t, -13); return { from: dateStr(f), to: dateStr(t), gran: 'day', label: shortLabel(f) + ' – ' + shortLabel(t) }; }
+  if (r === '30d') { const f = addDays(t, -29); return { from: dateStr(f), to: dateStr(t), gran: 'day', label: shortLabel(f) + ' – ' + shortLabel(t) }; }
+  if (r === '90d') { const f = addDays(t, -89); return { from: dateStr(f), to: dateStr(t), gran: 'day', label: shortLabel(f) + ' – ' + shortLabel(t) }; }
+  if (r === 'mtd') {
+    const tzStr = dateStr(t);
+    const first = tzStr.slice(0, 8) + '01';
+    return { from: first, to: dateStr(t), gran: 'day', label: 'MTD ' + shortLabel(first) + ' – ' + shortLabel(t) };
+  }
+  if (r === 'custom') {
+    const f = STATE.custom.from || dateStr(t);
+    const to = STATE.custom.to || dateStr(t);
+    const days = Math.max(1, Math.round((new Date(to) - new Date(f)) / 86400000));
+    return { from: f, to: to, gran: days <= 1 ? 'hour' : 'day', label: shortLabel(f) + ' – ' + shortLabel(to) };
+  }
+  return { from: dateStr(t), to: dateStr(t), gran: 'hour', label: 'today' };
+}
+
+// ================ MCP wrapper ================
+function unwrapResponse(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  if (Array.isArray(raw.rows) || Array.isArray(raw.columns)) return raw;
+  if (Array.isArray(raw.content)) {
+    for (const c of raw.content) {
+      if (c && typeof c.text === 'string') {
+        try { return unwrapResponse(JSON.parse(c.text)); } catch (_e) { /* try next */ }
+      }
+    }
+  }
+  if (raw.result && typeof raw.result === 'object') return unwrapResponse(raw.result);
+  if (raw.data && typeof raw.data === 'object' && (Array.isArray(raw.data.rows) || Array.isArray(raw.data.columns))) return raw.data;
+  return raw;
+}
+async function callTool(name, args) {
+  try { return unwrapResponse(await window.cowork.callMcpTool(name, args || {})); }
+  catch (e) { console.error('callMcpTool failed', name, e); return { __error: e && e.message ? e.message : String(e) }; }
+}
+
+// ================ fetch ================
+async function fetchAll() {
+  const r = rangeToDates();
+  const SINCE = `SINCE ${r.from} UNTIL ${r.to}`;
+  const TS = r.gran === 'hour' ? 'TIMESERIES hour' : 'TIMESERIES day';
+  const queries = {
+    sessionsByDim:    `FROM sessions SHOW sessions GROUP BY utm_source, utm_medium, referrer_source, referrer_name ${SINCE} ORDER BY sessions DESC LIMIT 200`,
+    ordersByDim:      `FROM sales SHOW orders, total_sales GROUP BY order_utm_source, order_utm_medium, referring_channel ${SINCE} ORDER BY total_sales DESC LIMIT 200`,
+    campSessions:     `FROM sessions SHOW sessions GROUP BY utm_source, utm_medium, utm_campaign ${SINCE} ORDER BY sessions DESC LIMIT 50`,
+    orderUtmCampaign: `FROM sales SHOW orders, total_sales GROUP BY order_utm_source, order_utm_medium, order_utm_campaign ${SINCE} ORDER BY total_sales DESC LIMIT 100`,
+    funnel:           `FROM sessions SHOW sessions, sessions_with_cart_additions, sessions_that_reached_checkout, sessions_that_completed_checkout, conversion_rate ${SINCE}`,
+    sessionsTs:       `FROM sessions SHOW sessions ${TS} ${SINCE}`,
+    ordersTs:         `FROM sales SHOW orders, total_sales ${TS} ${SINCE}`,
+    refSrc:           `FROM sessions SHOW sessions GROUP BY referrer_source, referrer_name ${SINCE}`
+  };
+  const keys = Object.keys(queries);
+  const results = await Promise.all(keys.map(k => callTool(TOOL_SHOPIFY, { query: queries[k] })));
+  const out = {};
+  keys.forEach((k, i) => out[k] = results[i]);
+  out._range = r;
+  return out;
+}
+
+// ================ aggregation → STATE.cache ================
+function buildCache(data) {
+  // Channel rows (from sessionsByDim + ordersByDim)
+  const sessByCh = {};
+  let totalSess = 0;
+  (data.sessionsByDim.rows || []).forEach(([src, med, rsrc, rname, n]) => {
+    const ch = bucketSessionChannel(src, med, rsrc, rname);
+    const v = Number(n) || 0;
+    sessByCh[ch] = (sessByCh[ch] || 0) + v;
+    totalSess += v;
+  });
+  const ordByCh = {};
+  let totalOrd = 0, totalRev = 0;
+  (data.ordersByDim.rows || []).forEach(([osrc, omed, rchan, ord, rev]) => {
+    const ch = bucketOrderChannel(osrc, omed, rchan);
+    if (!ordByCh[ch]) ordByCh[ch] = { orders: 0, rev: 0 };
+    ordByCh[ch].orders += Number(ord) || 0;
+    ordByCh[ch].rev += Number(rev) || 0;
+    totalOrd += Number(ord) || 0;
+    totalRev += Number(rev) || 0;
+  });
+  const channelKeys = new Set([...CHANNEL_ORDER, ...Object.keys(sessByCh), ...Object.keys(ordByCh)]);
+  const channelRows = [...channelKeys].map(k => {
+    const sess = sessByCh[k] || 0;
+    const ord = (ordByCh[k] || {}).orders || 0;
+    const rev = (ordByCh[k] || {}).rev || 0;
+    return { label: k, sess, orders: ord, rev, cvr: sess ? (ord / sess) * 100 : 0 };
+  });
+  STATE.cache.channel = channelRows;
+  STATE.cache.channelTotal = { sess: totalSess, orders: totalOrd, rev: totalRev };
+
+  // Source rows — utm_source if present; otherwise split untagged by referrer
+  const sessBySrc = {};
+  (data.sessionsByDim.rows || []).forEach(([src, med, rsrc, rname, n]) => {
+    let k;
+    if (nonEmpty(src)) k = src.toLowerCase();
+    else {
+      const rs = (rsrc || '').toLowerCase();
+      k = (!rs || rs === 'direct') ? 'Direct' : 'Other';
+    }
+    sessBySrc[k] = (sessBySrc[k] || 0) + (Number(n) || 0);
+  });
+  const ordBySrc = {};
+  (data.ordersByDim.rows || []).forEach(([osrc, omed, rchan, ord, rev]) => {
+    let k;
+    if (nonEmpty(osrc)) k = osrc.toLowerCase();
+    else {
+      const rc = (rchan || '').toLowerCase();
+      k = (!rc || rc === 'direct') ? 'Direct' : 'Other';
+    }
+    if (!ordBySrc[k]) ordBySrc[k] = { orders: 0, rev: 0 };
+    ordBySrc[k].orders += Number(ord) || 0;
+    ordBySrc[k].rev += Number(rev) || 0;
+  });
+  const srcKeys = new Set([...Object.keys(sessBySrc), ...Object.keys(ordBySrc)]);
+  STATE.cache.source = [...srcKeys].map(k => ({
+    label: k,
+    sess: sessBySrc[k] || 0,
+    orders: (ordBySrc[k] || {}).orders || 0,
+    rev: (ordBySrc[k] || {}).rev || 0,
+    cvr: (sessBySrc[k] || 0) ? ((ordBySrc[k] || {}).orders || 0) / (sessBySrc[k] || 1) * 100 : 0
+  })).filter(r => r.sess > 0 || r.orders > 0);
+
+  // Medium rows — utm_medium if present; otherwise split untagged by referrer
+  const sessByMed = {};
+  (data.sessionsByDim.rows || []).forEach(([src, med, rsrc, rname, n]) => {
+    let k;
+    if (nonEmpty(med)) k = med.toLowerCase();
+    else {
+      const rs = (rsrc || '').toLowerCase();
+      k = (!rs || rs === 'direct') ? 'Direct' : 'Other';
+    }
+    sessByMed[k] = (sessByMed[k] || 0) + (Number(n) || 0);
+  });
+  const ordByMed = {};
+  (data.ordersByDim.rows || []).forEach(([osrc, omed, rchan, ord, rev]) => {
+    let k;
+    if (nonEmpty(omed)) k = omed.toLowerCase();
+    else {
+      const rc = (rchan || '').toLowerCase();
+      k = (!rc || rc === 'direct') ? 'Direct' : 'Other';
+    }
+    if (!ordByMed[k]) ordByMed[k] = { orders: 0, rev: 0 };
+    ordByMed[k].orders += Number(ord) || 0;
+    ordByMed[k].rev += Number(rev) || 0;
+  });
+  const medKeys = new Set([...Object.keys(sessByMed), ...Object.keys(ordByMed)]);
+  STATE.cache.medium = [...medKeys].map(k => ({
+    label: k,
+    sess: sessByMed[k] || 0,
+    orders: (ordByMed[k] || {}).orders || 0,
+    rev: (ordByMed[k] || {}).rev || 0,
+    cvr: (sessByMed[k] || 0) ? ((ordByMed[k] || {}).orders || 0) / (sessByMed[k] || 1) * 100 : 0
+  })).filter(r => r.sess > 0 || r.orders > 0);
+
+  // Campaigns rows
+  const sessByCamp = {};
+  (data.campSessions.rows || []).forEach(([src, med, camp, n]) => {
+    if (!nonEmpty(camp)) return;
+    const k = (src || '_') + '|' + (med || '_') + '|' + camp;
+    sessByCamp[k] = (sessByCamp[k] || 0) + (Number(n) || 0);
+  });
+  const ordByCamp = {};
+  (data.orderUtmCampaign.rows || []).forEach(([osrc, omed, ocamp, ord, rev]) => {
+    if (!nonEmpty(ocamp)) return;
+    const k = (osrc || '_') + '|' + (omed || '_') + '|' + ocamp;
+    if (!ordByCamp[k]) ordByCamp[k] = { orders: 0, rev: 0 };
+    ordByCamp[k].orders += Number(ord) || 0;
+    ordByCamp[k].rev += Number(rev) || 0;
+  });
+  const campKeys = new Set([...Object.keys(sessByCamp), ...Object.keys(ordByCamp)]);
+  STATE.cache.campaigns = [...campKeys].map(k => {
+    const [src, med, camp] = k.split('|').map(s => s === '_' ? '' : s);
+    const sess = sessByCamp[k] || 0;
+    const ord = (ordByCamp[k] || {}).orders || 0;
+    const rev = (ordByCamp[k] || {}).rev || 0;
+    return { src, med, camp, sess, orders: ord, rev, cvr: sess ? (ord / sess) * 100 : 0 };
+  });
+
+  // Matrix
+  const cells = {};
+  const srcs = new Set();
+  const meds = new Set();
+  let max = 0;
+  (data.sessionsByDim.rows || []).forEach(([src, med, rsrc, rname, n]) => {
+    const s = nonEmpty(src) ? src.toLowerCase() : '(none)';
+    const m = nonEmpty(med) ? med.toLowerCase() : '(none)';
+    const v = Number(n) || 0;
+    cells[s + '|' + m] = (cells[s + '|' + m] || 0) + v;
+    if (cells[s + '|' + m] > max) max = cells[s + '|' + m];
+    srcs.add(s); meds.add(m);
+  });
+  const sortedSrcs = [...srcs].sort((a, b) => {
+    let aSum = 0, bSum = 0;
+    [...meds].forEach(m => { aSum += cells[a + '|' + m] || 0; bSum += cells[b + '|' + m] || 0; });
+    return bSum - aSum;
+  }).slice(0, 8);
+  const sortedMeds = [...meds].sort((a, b) => {
+    let aSum = 0, bSum = 0;
+    [...srcs].forEach(s => { aSum += cells[s + '|' + a] || 0; bSum += cells[s + '|' + b] || 0; });
+    return bSum - aSum;
+  }).slice(0, 6);
+  STATE.cache.matrix = { cells, srcs: sortedSrcs, meds: sortedMeds, max };
+
+  // Coverage
+  let taggedSum = 0, untagged = 0;
+  (data.sessionsByDim.rows || []).forEach(([src, med, rsrc, rname, n]) => {
+    const v = Number(n) || 0;
+    if (nonEmpty(src) || nonEmpty(med)) taggedSum += v; else untagged += v;
+  });
+  const refBuckets = {};
+  (data.refSrc.rows || []).forEach(([src, name, n]) => {
+    const v = Number(n) || 0;
+    const s = (src || '').toLowerCase();
+    let key;
+    if (s === 'direct' || !s) key = 'Direct';
+    else if (s === 'search') key = 'Search';
+    else if (s === 'email') key = 'Email';
+    else if (s === 'social') key = 'Social (no UTM)';
+    else key = 'Other';
+    refBuckets[key] = (refBuckets[key] || 0) + v;
+  });
+  const refTotal = Object.values(refBuckets).reduce((a, b) => a + b, 0);
+  const ratio = untagged && refTotal ? untagged / refTotal : 0;
+  const segs = [
+    { label: 'Tagged', val: taggedSum, color: 'var(--accent)' },
+    { label: 'Direct (no UTM)', val: (refBuckets['Direct'] || 0) * ratio, color: 'var(--muted-2)' },
+    { label: 'Search', val: (refBuckets['Search'] || 0) * ratio, color: 'var(--p-google)' },
+    { label: 'Email', val: (refBuckets['Email'] || 0) * ratio, color: 'var(--m-email)' },
+    { label: 'Social (no UTM)', val: (refBuckets['Social (no UTM)'] || 0) * ratio, color: 'var(--p-ig)' },
+    { label: 'Other', val: (refBuckets['Other'] || 0) * ratio, color: 'var(--neg)' }
+  ].filter(s => s.val > 0);
+  STATE.cache.coverage = { segs, total: taggedSum + untagged, taggedSum, untagged };
+
+  // KPI
+  const fr = data.funnel.rows && data.funnel.rows[0] ? data.funnel.rows[0] : null;
+  STATE.cache.kpi = {
+    sessions: fr ? Number(fr[0]) : 0,
+    cvr: fr ? Number(fr[4]) : 0,
+    orders: totalOrd,
+    revenue: totalRev,
+    taggedSess: taggedSum,
+    range: data._range
+  };
+
+  // Funnel
+  STATE.cache.funnel = fr ? {
+    sessions: Number(fr[0]) || 0,
+    cart: Number(fr[1]) || 0,
+    checkout: Number(fr[2]) || 0,
+    completed: Number(fr[3]) || 0
+  } : null;
+
+  // Volume (timeseries)
+  const sRows = data.sessionsTs.rows || [];
+  const oRows = data.ordersTs.rows || [];
+  STATE.cache.volume = { sRows, oRows, range: data._range };
+}
+
+// ================ generic sortable table ================
+function sortRows(rows, col, dir) {
+  return [...rows].sort((a, b) => {
+    let av = a[col], bv = b[col];
+    if (av == null && bv == null) return 0;
+    if (av == null) return dir === 'asc' ? -1 : 1;
+    if (bv == null) return dir === 'asc' ? 1 : -1;
+    if (typeof av === 'string') return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    av = Number(av) || 0; bv = Number(bv) || 0;
+    return dir === 'asc' ? av - bv : bv - av;
+  });
+}
+
+function thHTML(col, label, sortKey, sort, align) {
+  const active = sort.col === col;
+  const arrow = active ? (sort.dir === 'desc' ? '▼' : '▲') : '';
+  const cls = 'sortable' + (active ? ' sort-active' : '');
+  const styleAlign = align ? `style="text-align:${align}"` : '';
+  return `<th class="${cls}" data-col="${col}" data-sortkey="${sortKey}" ${styleAlign}>${label}<span class="sort-arrow">${arrow}</span></th>`;
+}
+
+// ================ renderers ================
+function renderKpis() {
+  const k = STATE.cache.kpi;
+  if (!k) return;
+  const taggedPct = k.sessions ? (k.taggedSess / k.sessions) * 100 : 0;
+  const aov = k.orders > 0 ? k.revenue / k.orders : 0;
+
+  document.getElementById('kpi-sessions').textContent = fmtInt(k.sessions);
+  document.getElementById('kpi-sessions-sub').innerHTML = '<span class="delta-flat">' + fmtInt(k.taggedSess) + ' tagged · ' + fmtInt(k.sessions - k.taggedSess) + ' untagged</span>';
+
+  document.getElementById('kpi-tagged').textContent = fmtPctRaw(taggedPct, 1);
+  document.getElementById('kpi-tagged-sub').textContent = fmtInt(k.taggedSess) + ' / ' + fmtInt(k.sessions) + ' sessions';
+
+  document.getElementById('kpi-orders').textContent = fmtInt(k.orders);
+  document.getElementById('kpi-orders-sub').textContent = k.orders ? 'avg ' + fmtMoney(aov) + ' per order' : '—';
+
+  document.getElementById('kpi-revenue').textContent = fmtMoney(k.revenue);
+  document.getElementById('kpi-revenue-sub').textContent = k.orders ? fmtInt(k.orders) + ' orders · AOV ' + fmtMoney(aov) : 'no orders';
+
+  const cvrPctNum = k.cvr * 100;
+  const cvrEl = document.getElementById('kpi-cvr');
+  cvrEl.textContent = fmtPctRaw(cvrPctNum, 2);
+  cvrEl.style.color = cvrPctNum >= 3 ? 'var(--pos)' : cvrPctNum >= 1.5 ? 'var(--warn)' : cvrPctNum > 0 ? 'var(--neg)' : 'var(--text)';
+  document.getElementById('kpi-cvr-sub').textContent = 'blended · AOV ' + (k.orders ? fmtMoney(aov) : '—');
+}
+
+function renderChannelTable() {
+  const rows = STATE.cache.channel || [];
+  if (rows.length === 0) {
+    document.getElementById('channel-table').innerHTML = '<div class="empty">No data in selected range.</div>';
+    return;
+  }
+  const sort = STATE.sort.channel;
+  const sorted = sortRows(rows, sort.col, sort.dir);
+  const totals = STATE.cache.channelTotal || { sess: 0, orders: 0, rev: 0 };
+  const totalCvr = totals.sess ? (totals.orders / totals.sess) * 100 : 0;
+  const maxSess = Math.max(1, ...rows.map(r => r.sess));
+
+  const headHtml = `
+    <tr>
+      ${thHTML('label', 'Channel', 'channel', sort)}
+      ${thHTML('sess', 'Sessions', 'channel', sort, 'right')}
+      ${thHTML('orders', 'Orders', 'channel', sort, 'right')}
+      ${thHTML('rev', 'Revenue', 'channel', sort, 'right')}
+      ${thHTML('cvr', 'CVR', 'channel', sort, 'right')}
+    </tr>`;
+
+  const bodyHtml = sorted.map(r => {
+    const color = CHANNEL_COLOR[r.label] || 'var(--muted-2)';
+    const w = (r.sess / maxSess) * 100;
+    return `
+      <tr>
+        <td><span class="swatch" style="background:${color}"></span>${safeText(r.label)}</td>
+        <td class="bar-cell">
+          <span class="v">${fmtInt(r.sess)}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${w.toFixed(1)}%; background:${color}; opacity: 0.55"></div></div>
+        </td>
+        <td>${r.orders ? fmtInt(r.orders) : '<span class="tag muted">0</span>'}</td>
+        <td>${r.rev > 0 ? fmtMoney(r.rev) : (r.orders > 0 ? fmtMoney(0) : '—')}</td>
+        <td><span class="cvr-pill ${cvrClass(r.cvr)}">${r.cvr ? fmtPctRaw(r.cvr, 2) : '0%'}</span></td>
+      </tr>`;
+  }).join('');
+
+  const totalHtml = `
+    <tr class="totalrow">
+      <td>TOTAL</td>
+      <td>${fmtInt(totals.sess)}</td>
+      <td>${fmtInt(totals.orders)}</td>
+      <td>${fmtMoney(totals.rev)}</td>
+      <td>${fmtPctRaw(totalCvr, 2)}</td>
+    </tr>`;
+
+  document.getElementById('channel-table').innerHTML = `
+    <table class="tbl">
+      <thead>${headHtml}</thead>
+      <tbody>${bodyHtml}${totalHtml}</tbody>
+    </table>`;
+}
+
+function renderSourceTable() {
+  const rows = STATE.cache.source || [];
+  if (rows.length === 0) { document.getElementById('source-table').innerHTML = '<div class="empty">No source data.</div>'; return; }
+  const sort = STATE.sort.source;
+  const sorted = sortRows(rows, sort.col, sort.dir);
+  const top = sorted.slice(0, 12);
+  const maxSess = Math.max(1, ...rows.map(r => r.sess));
+  let totSess = 0, totOrd = 0, totRev = 0;
+  rows.forEach(r => { totSess += r.sess; totOrd += r.orders; totRev += r.rev; });
+  const totCvr = totSess ? (totOrd / totSess) * 100 : 0;
+
+  const head = `<tr>
+    ${thHTML('label', 'Source', 'source', sort)}
+    ${thHTML('sess', 'Sessions', 'source', sort, 'right')}
+    ${thHTML('orders', 'Orders', 'source', sort, 'right')}
+    ${thHTML('rev', 'Revenue', 'source', sort, 'right')}
+    ${thHTML('cvr', 'CVR', 'source', sort, 'right')}
+  </tr>`;
+
+  const body = top.map(r => {
+    const color = SOURCE_COLOR[r.label] || 'var(--text-2)';
+    const w = (r.sess / maxSess) * 100;
+    return `<tr>
+      <td><span class="swatch" style="background:${color}"></span>${safeText(r.label)}</td>
+      <td class="bar-cell">
+        <span class="v">${fmtInt(r.sess)}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${w.toFixed(1)}%; background:${color}; opacity:0.65"></div></div>
+      </td>
+      <td>${r.orders ? fmtInt(r.orders) : '<span class="tag muted">0</span>'}</td>
+      <td>${r.rev > 0 ? fmtMoney(r.rev) : (r.orders > 0 ? fmtMoney(0) : '—')}</td>
+      <td><span class="cvr-pill ${cvrClass(r.cvr)}">${r.cvr ? fmtPctRaw(r.cvr, 2) : '0%'}</span></td>
+    </tr>`;
+  }).join('');
+
+  const total = `<tr class="totalrow"><td>TOTAL</td><td>${fmtInt(totSess)}</td><td>${fmtInt(totOrd)}</td><td>${fmtMoney(totRev)}</td><td>${fmtPctRaw(totCvr, 2)}</td></tr>`;
+  document.getElementById('source-table').innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${body}${total}</tbody></table>`;
+}
+
+function renderMediumTable() {
+  const rows = STATE.cache.medium || [];
+  if (rows.length === 0) { document.getElementById('medium-table').innerHTML = '<div class="empty">No medium data.</div>'; return; }
+  const sort = STATE.sort.medium;
+  const sorted = sortRows(rows, sort.col, sort.dir);
+  const top = sorted.slice(0, 12);
+  const maxSess = Math.max(1, ...rows.map(r => r.sess));
+  let totSess = 0, totOrd = 0, totRev = 0;
+  rows.forEach(r => { totSess += r.sess; totOrd += r.orders; totRev += r.rev; });
+  const totCvr = totSess ? (totOrd / totSess) * 100 : 0;
+
+  const head = `<tr>
+    ${thHTML('label', 'Medium', 'medium', sort)}
+    ${thHTML('sess', 'Sessions', 'medium', sort, 'right')}
+    ${thHTML('orders', 'Orders', 'medium', sort, 'right')}
+    ${thHTML('rev', 'Revenue', 'medium', sort, 'right')}
+    ${thHTML('cvr', 'CVR', 'medium', sort, 'right')}
+  </tr>`;
+
+  const body = top.map(r => {
+    const color = MEDIUM_COLOR[r.label] || 'var(--text-2)';
+    const w = (r.sess / maxSess) * 100;
+    return `<tr>
+      <td><span class="swatch" style="background:${color}"></span>${safeText(r.label)}</td>
+      <td class="bar-cell">
+        <span class="v">${fmtInt(r.sess)}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${w.toFixed(1)}%; background:${color}; opacity:0.65"></div></div>
+      </td>
+      <td>${r.orders ? fmtInt(r.orders) : '<span class="tag muted">0</span>'}</td>
+      <td>${r.rev > 0 ? fmtMoney(r.rev) : (r.orders > 0 ? fmtMoney(0) : '—')}</td>
+      <td><span class="cvr-pill ${cvrClass(r.cvr)}">${r.cvr ? fmtPctRaw(r.cvr, 2) : '0%'}</span></td>
+    </tr>`;
+  }).join('');
+
+  const total = `<tr class="totalrow"><td>TOTAL</td><td>${fmtInt(totSess)}</td><td>${fmtInt(totOrd)}</td><td>${fmtMoney(totRev)}</td><td>${fmtPctRaw(totCvr, 2)}</td></tr>`;
+  document.getElementById('medium-table').innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${body}${total}</tbody></table>`;
+}
+
+function renderCampaignsTable() {
+  const rows = STATE.cache.campaigns || [];
+  if (rows.length === 0) { document.getElementById('campaigns-table').innerHTML = '<div class="empty">No tagged campaigns in range.</div>'; return; }
+  const sort = STATE.sort.campaigns;
+  const sorted = sortRows(rows, sort.col, sort.dir);
+  const top = sorted.slice(0, 15);
+  const maxRev = Math.max(1, ...top.map(r => r.rev || 0));
+  const maxSess = Math.max(1, ...top.map(r => r.sess || 0));
+
+  const head = `<tr>
+    ${thHTML('camp', 'Campaign', 'campaigns', sort)}
+    <th>Source / medium</th>
+    ${thHTML('sess', 'Sessions', 'campaigns', sort, 'right')}
+    ${thHTML('orders', 'Orders', 'campaigns', sort, 'right')}
+    ${thHTML('rev', 'Revenue', 'campaigns', sort, 'right')}
+    ${thHTML('cvr', 'CVR', 'campaigns', sort, 'right')}
+  </tr>`;
+
+  const body = top.map(r => {
+    const tagCls = (r.med && r.med.includes('paid')) ? 'paid'
+                : (r.med && (r.med.includes('social') || r.med === 'organic')) ? 'organic'
+                : (r.med === 'email') ? 'email'
+                : 'muted';
+    const wRev = (r.rev / maxRev) * 100;
+    return `<tr>
+      <td class="cell-trunc" title="${safeText(r.camp)}">${safeText(r.camp)}</td>
+      <td><span class="tag ${tagCls}">${safeText(r.src || '—')} · ${safeText(r.med || '—')}</span></td>
+      <td>${fmtInt(r.sess)}</td>
+      <td>${r.orders ? fmtInt(r.orders) : '<span class="tag muted">0</span>'}</td>
+      <td class="bar-cell">
+        <span class="v">${r.rev > 0 ? fmtMoney(r.rev) : (r.orders ? fmtMoney(0) : '—')}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${wRev.toFixed(1)}%; background:var(--accent); opacity:0.55"></div></div>
+      </td>
+      <td><span class="cvr-pill ${cvrClass(r.cvr)}">${r.cvr ? fmtPctRaw(r.cvr, 2) : '0%'}</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('campaigns-table').innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+function renderMatrix() {
+  const m = STATE.cache.matrix;
+  if (!m || m.srcs.length === 0 || m.meds.length === 0) {
+    document.getElementById('matrix-table').innerHTML = '<div class="empty">No source × medium combinations.</div>';
+    return;
+  }
+  const cellColor = (v) => {
+    if (!v || !m.max) return 'var(--panel-alt)';
+    const t = Math.pow(v / m.max, 0.55);
+    return `rgba(201, 164, 90, ${0.10 + t * 0.55})`;
+  };
+  const cellTextColor = (v) => {
+    if (!v || !m.max) return 'var(--muted-2)';
+    return (v / m.max > 0.45) ? '#15110d' : 'var(--text-2)';
+  };
+  const html = `
+    <table class="matrix-table">
+      <thead><tr><th></th>${m.meds.map(md => `<th>${safeText(md)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${m.srcs.map(s => `
+          <tr>
+            <td>${safeText(s)}</td>
+            ${m.meds.map(md => {
+              const v = m.cells[s + '|' + md] || 0;
+              return `<td><span class="matrix-cell" style="background:${cellColor(v)}; color:${cellTextColor(v)}">${v ? fmtInt(v) : '·'}</span></td>`;
+            }).join('')}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+  document.getElementById('matrix-table').innerHTML = html;
+}
+
+function renderCoverage() {
+  const c = STATE.cache.coverage;
+  if (!c || c.total === 0) { document.getElementById('coverage').innerHTML = '<div class="empty">No sessions in range.</div>'; return; }
+  const total = c.segs.reduce((a, b) => a + b.val, 0);
+  const segsHtml = c.segs.map(s => {
+    const pct = (s.val / total) * 100;
+    const showLabel = pct >= 8;
+    return `<div class="coverage-seg" style="flex: ${s.val} 0 0; background:${s.color}" title="${s.label}: ${fmtInt(s.val)} (${pct.toFixed(1)}%)">${showLabel ? '<span>' + Math.round(pct) + '%</span>' : ''}</div>`;
+  }).join('');
+  const legendHtml = c.segs.map(s => {
+    const pct = (s.val / total) * 100;
+    return `<div class="item"><span class="swatch" style="background:${s.color}"></span><span>${safeText(s.label)}</span> <span class="tag muted">${fmtInt(s.val)} · ${pct.toFixed(1)}%</span></div>`;
+  }).join('');
+  const taggedPct = (c.taggedSum / total) * 100;
+  const taggedClass = taggedPct >= 70 ? 'organic' : taggedPct >= 40 ? 'paid' : 'muted';
+  document.getElementById('coverage').innerHTML = `
+    <div style="display:flex; align-items:center; justify-content: space-between; margin-bottom:10px;">
+      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); font-variant-numeric: tabular-nums;">${taggedPct.toFixed(1)}%</div>
+      <span class="tag ${taggedClass}">${taggedPct >= 70 ? 'good' : taggedPct >= 40 ? 'mid' : 'low'} coverage</span>
+    </div>
+    <div class="coverage-bar">${segsHtml}</div>
+    <div class="coverage-legend">${legendHtml}</div>`;
+}
+
+function renderFunnel() {
+  const f = STATE.cache.funnel;
+  if (!f) { document.getElementById('fnl-0').textContent = '—'; return; }
+  document.getElementById('fnl-0').textContent = fmtInt(f.sessions);
+  document.getElementById('fnl-1').textContent = fmtInt(f.cart);
+  document.getElementById('fnl-1-sub').innerHTML = f.sessions ? `<span class="delta-flat">${fmtPctRaw((f.cart / f.sessions) * 100, 1)} of sessions · −${(100 - (f.cart / f.sessions) * 100).toFixed(0)}% drop</span>` : '';
+  document.getElementById('fnl-2').textContent = fmtInt(f.checkout);
+  document.getElementById('fnl-2-sub').innerHTML = f.cart ? `<span class="delta-flat">${fmtPctRaw((f.checkout / f.cart) * 100, 1)} of cart · −${(100 - (f.checkout / f.cart) * 100).toFixed(0)}% drop</span>` : '';
+  document.getElementById('fnl-3').textContent = fmtInt(f.completed);
+  document.getElementById('fnl-3-sub').innerHTML = f.checkout ? `<span class="delta-flat">${fmtPctRaw((f.completed / f.checkout) * 100, 1)} of checkout · −${(100 - (f.completed / f.checkout) * 100).toFixed(0)}% drop</span>` : '';
+}
+
+function renderVolumeChart() {
+  const v = STATE.cache.volume;
+  if (!v) return;
+  const r = v.range;
+  const isHour = r.gran === 'hour';
+  const labels = v.sRows.map(row => isHour ? hourLabel(row[0]) : dayLabel(row[0]));
+  const sessSeries = v.sRows.map(row => Number(row[1]) || 0);
+  const ordersByKey = {};
+  const revByKey = {};
+  v.oRows.forEach(row => { ordersByKey[row[0]] = Number(row[1]) || 0; revByKey[row[0]] = Number(row[2]) || 0; });
+  const orderSeries = v.sRows.map(row => ordersByKey[row[0]] || 0);
+  const revSeries = v.sRows.map(row => revByKey[row[0]] || 0);
+
+  document.getElementById('volume-hint').textContent = (isHour ? 'hourly · ' : 'daily · ') + r.label;
+
+  const ctx = document.getElementById('volume-chart').getContext('2d');
+  if (STATE.charts.volume) { STATE.charts.volume.destroy(); STATE.charts.volume = null; }
+
+  const orderPointData = sessSeries.map((s, i) => orderSeries[i] > 0 ? s : null);
+
+  STATE.charts.volume = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Sessions',
+          data: sessSeries,
+          borderColor: '#c9a45a',
+          backgroundColor: 'transparent',
+          tension: 0,
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointBackgroundColor: '#c9a45a',
+          pointBorderColor: '#16130f',
+          pointBorderWidth: 2,
+          borderWidth: 1.6,
+          order: 2
+        },
+        {
+          label: 'Orders',
+          data: orderPointData,
+          borderColor: 'transparent',
+          backgroundColor: '#22c55e',
+          showLine: false,
+          pointRadius: function(c) { const o = orderSeries[c.dataIndex]; return o ? 5 + Math.min(10, o * 1.8) : 0; },
+          pointHoverRadius: function(c) { const o = orderSeries[c.dataIndex]; return o ? 7 + Math.min(12, o * 1.8) : 0; },
+          pointBackgroundColor: '#22c55e',
+          pointBorderColor: '#16130f',
+          pointBorderWidth: 2,
+          spanGaps: false,
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#16130f',
+          borderColor: '#3a352d',
+          borderWidth: 1,
+          titleColor: '#c9a45a',
+          bodyColor: '#ebe4d3',
+          padding: 10,
+          displayColors: false,
+          filter: function(item) { return item.datasetIndex === 0; },
+          callbacks: {
+            label: function(c) {
+              const i = c.dataIndex;
+              const lines = [' Sessions: ' + fmtInt(sessSeries[i])];
+              if (orderSeries[i] > 0) lines.push(' Orders: ' + fmtInt(orderSeries[i]));
+              if (revSeries[i] > 0) lines.push(' Revenue: ' + fmtMoney(revSeries[i]));
+              return lines;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { font: { size: 10 }, color: '#8e8474', autoSkip: true, maxRotation: 0 },
+          grid: { display: false }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 10 }, color: '#8e8474', precision: 0 },
+          grid: { color: 'rgba(58, 53, 45, 0.45)', drawBorder: false }
+        }
+      }
+    }
+  });
+}
+
+// ================ sort click delegation ================
+function onSortClick(e) {
+  const th = e.target.closest('th[data-col][data-sortkey]');
+  if (!th) return;
+  const col = th.dataset.col;
+  const sortKey = th.dataset.sortkey;
+  if (!STATE.sort[sortKey]) return;
+  const cur = STATE.sort[sortKey];
+  if (cur.col === col) {
+    cur.dir = (cur.dir === 'desc') ? 'asc' : 'desc';
+  } else {
+    cur.col = col;
+    // sensible defaults: text columns ascend, numeric descend
+    cur.dir = (col === 'label' || col === 'camp') ? 'asc' : 'desc';
+  }
+  // re-render only the affected table
+  if (sortKey === 'channel') renderChannelTable();
+  else if (sortKey === 'source') renderSourceTable();
+  else if (sortKey === 'medium') renderMediumTable();
+  else if (sortKey === 'campaigns') renderCampaignsTable();
+}
+
+// ================ refresh loop ================
+function checkErrors(data) {
+  const errs = [];
+  ['sessionsByDim', 'ordersByDim', 'campSessions', 'orderUtmCampaign', 'funnel', 'sessionsTs', 'ordersTs', 'refSrc'].forEach(k => {
+    if (data[k] && data[k].__error) errs.push(k + ': ' + data[k].__error);
+  });
+  return errs;
+}
+
+function setFreshness(state) {
+  const dot = document.getElementById('fresh-dot');
+  const text = document.getElementById('fresh-text');
+  if (state === 'loading') { dot.className = 'fresh-dot pulsing'; text.textContent = 'refreshing…'; return; }
+  if (state === 'paused') { dot.className = 'fresh-dot paused'; text.textContent = 'paused · ' + (STATE.lastRefreshedAt ? relTime(STATE.lastRefreshedAt) : 'never'); return; }
+  if (state === 'error') { dot.className = 'fresh-dot stale'; text.textContent = 'error · ' + (STATE.lastRefreshedAt ? relTime(STATE.lastRefreshedAt) : 'never'); return; }
+  if (state === 'fresh') {
+    dot.className = 'fresh-dot pulsing';
+    text.textContent = 'fresh · ' + (STATE.lastRefreshedAt ? relTime(STATE.lastRefreshedAt) : 'now');
+    setTimeout(() => { if (!STATE.paused) dot.className = 'fresh-dot'; }, 1200);
+    return;
+  }
+}
+
+let _refreshing = false;
+async function refresh() {
+  if (_refreshing) return;
+  _refreshing = true;
+  setFreshness('loading');
+  try {
+    const data = await fetchAll();
+    const errs = checkErrors(data);
+    if (errs.length >= 8) {
+      setFreshness('error');
+      console.error('all calls failed', errs);
+      return;
+    }
+    document.getElementById('date-label').textContent = data._range.label;
+    buildCache(data);
+    renderKpis();
+    renderVolumeChart();
+    renderChannelTable();
+    renderSourceTable();
+    renderMediumTable();
+    renderCampaignsTable();
+    renderMatrix();
+    renderCoverage();
+    renderFunnel();
+    STATE.lastRefreshedAt = new Date();
+    setFreshness('fresh');
+  } catch (e) {
+    console.error(e);
+    setFreshness('error');
+  } finally {
+    _refreshing = false;
+  }
+}
+
+function scheduleNext() {
+  if (STATE.timer) { clearTimeout(STATE.timer); STATE.timer = null; }
+  if (STATE.paused) return;
+  STATE.timer = setTimeout(async () => { await refresh(); scheduleNext(); }, STATE.intervalSec * 1000);
+}
+
+function setIntervalSec(sec) {
+  STATE.intervalSec = sec;
+  document.querySelectorAll('#interval-group button').forEach(b => b.classList.toggle('active', String(b.dataset.interval) === String(sec)));
+  try { localStorage.setItem('cairo_utm_interval', String(sec)); } catch (e) {}
+  scheduleNext();
+}
+function setPaused(p) {
+  STATE.paused = p;
+  document.getElementById('pause-btn').textContent = p ? 'Resume' : 'Pause';
+  document.getElementById('pause-btn').classList.toggle('primary', p);
+  try { localStorage.setItem('cairo_utm_paused', p ? '1' : '0'); } catch (e) {}
+  if (p) { if (STATE.timer) clearTimeout(STATE.timer); setFreshness('paused'); }
+  else { scheduleNext(); setFreshness('fresh'); }
+}
+function setRange(r) {
+  STATE.range = r;
+  document.querySelectorAll('#range-pills button').forEach(b => b.classList.toggle('active', b.dataset.range === r));
+  document.getElementById('custom-range').classList.toggle('active', r === 'custom');
+  if (r !== 'custom') {
+    try { localStorage.setItem('cairo_utm_range', r); } catch (e) {}
+    refresh().then(() => { if (!STATE.paused) scheduleNext(); });
+  }
+}
+
+// Wire events
+document.getElementById('range-pills').addEventListener('click', e => { const b = e.target.closest('button[data-range]'); if (b) setRange(b.dataset.range); });
+document.getElementById('apply-custom').addEventListener('click', () => {
+  const f = document.getElementById('date-from').value;
+  const t = document.getElementById('date-to').value;
+  if (!f || !t) return;
+  STATE.custom = { from: f, to: t };
+  try { localStorage.setItem('cairo_utm_custom', JSON.stringify(STATE.custom)); } catch (e) {}
+  refresh().then(() => { if (!STATE.paused) scheduleNext(); });
+});
+document.getElementById('interval-group').addEventListener('click', e => { const b = e.target.closest('button[data-interval]'); if (b) setIntervalSec(Number(b.dataset.interval)); });
+document.getElementById('pause-btn').addEventListener('click', () => setPaused(!STATE.paused));
+
+// Manual refresh — 20s cooldown, faked when on cooldown.
+const _MANUAL_COOLDOWN_MS = 20000;
+let _lastManualRefreshAt = 0;
+async function manualRefresh() {
+  const now = Date.now();
+  const since = now - _lastManualRefreshAt;
+  if (since < _MANUAL_COOLDOWN_MS) {
+    setFreshness('loading');
+    await new Promise(r => setTimeout(r, 550 + Math.random() * 350));
+    STATE.lastRefreshedAt = new Date();
+    setFreshness('fresh');
+    return;
+  }
+  _lastManualRefreshAt = now;
+  await refresh();
+  if (!STATE.paused) scheduleNext();
+}
+document.getElementById('refresh-btn').addEventListener('click', manualRefresh);
+
+// Sort click delegation on each table container
+['channel-table', 'source-table', 'medium-table', 'campaigns-table'].forEach(id => {
+  document.getElementById(id).addEventListener('click', onSortClick);
+});
+
+// Rel-time tick
+setTimeout(function tick() {
+  if (STATE.lastRefreshedAt && !STATE.paused) {
+    document.getElementById('fresh-text').textContent = 'fresh · ' + relTime(STATE.lastRefreshedAt);
+  }
+  setTimeout(tick, 5000);
+}, 5000);
+
+// init
+(function init() {
+  try {
+    const sv = localStorage.getItem('cairo_utm_interval');
+    if (sv) STATE.intervalSec = Number(sv) || 60;
+    const sp = localStorage.getItem('cairo_utm_paused');
+    if (sp === '1') STATE.paused = true;
+    const sr = localStorage.getItem('cairo_utm_range');
+    if (sr) STATE.range = sr;
+    const sc = localStorage.getItem('cairo_utm_custom');
+    if (sc) STATE.custom = JSON.parse(sc);
+  } catch (e) {}
+  document.querySelectorAll('#interval-group button').forEach(b => b.classList.toggle('active', String(b.dataset.interval) === String(STATE.intervalSec)));
+  document.querySelectorAll('#range-pills button').forEach(b => b.classList.toggle('active', b.dataset.range === STATE.range));
+  document.getElementById('custom-range').classList.toggle('active', STATE.range === 'custom');
+  if (STATE.custom.from) document.getElementById('date-from').value = STATE.custom.from;
+  if (STATE.custom.to) document.getElementById('date-to').value = STATE.custom.to;
+  document.getElementById('pause-btn').textContent = STATE.paused ? 'Resume' : 'Pause';
+  document.getElementById('pause-btn').classList.toggle('primary', STATE.paused);
+  refresh().then(() => { if (!STATE.paused) scheduleNext(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,864 @@
+<!doctype html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Cairo Live Funnel",
+  "schemaVersion": 1,
+  "description": "Live funnel dashboard for CĀIRO. Pulls from Shopify analytics (sessions, orders, revenue, funnel, hourly) and Metricool (today's IG reels + TT videos). Auto-refreshes on a configurable interval (15/30/60s/2m, default 60s) with pause toggle. Sections: KPI tiles, channel sessions table, order/revenue by source table, sessions→cart→checkout→completed funnel, hourly sessions+orders combo chart, latest organic content cards.",
+  "mcpTools": [
+    "mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query",
+    "mcp__mcp-metricool__get_instagram_reels",
+    "mcp__mcp-metricool__get_tiktok_videos"
+  ],
+  "mcpServerNames": [
+    "Shopify",
+    "mcp-metricool",
+    "mcp-metricool"
+  ]
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CĀIRO live funnel</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #faf6f0;
+  --panel: #ffffff;
+  --panel-soft: #f5efe5;
+  --text: #1c1816;
+  --muted: #7a6f63;
+  --border: #e8e0d3;
+  --border-strong: #d6c9b3;
+  --emerald: #0f4c3a;
+  --emerald-soft: #e3ede9;
+  --gold: #b08d57;
+  --gold-soft: #f3e8d6;
+  --terra: #a84a3e;
+  --terra-soft: #f3dfdc;
+  --slate: #4a5568;
+  --slate-soft: #e7eaee;
+  --pos: #0f4c3a;
+  --neg: #a84a3e;
+  --shadow: 0 1px 2px rgba(28, 24, 22, 0.04), 0 4px 14px rgba(28, 24, 22, 0.04);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 32px; }
+.topbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  margin-bottom: 18px;
+}
+.brand { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 200px; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, var(--emerald), #1d6b53);
+  display: flex; align-items: center; justify-content: center;
+  color: #f5efe5; font-weight: 700; font-size: 13px; letter-spacing: 0.5px;
+}
+.brand-title { font-weight: 600; letter-spacing: 0.2px; font-size: 15px; }
+.brand-sub { color: var(--muted); font-size: 12px; }
+.controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fresh {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted);
+  padding: 5px 10px; border-radius: 999px; background: var(--panel-soft);
+  border: 1px solid var(--border);
+}
+.fresh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald); }
+.fresh-dot.pulsing { animation: pulse 1.4s ease-in-out infinite; }
+.fresh-dot.stale { background: var(--terra); animation: none; }
+.fresh-dot.paused { background: var(--gold); animation: none; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+.ctrl-group {
+  display: inline-flex; align-items: center;
+  background: var(--panel-soft); border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px; gap: 2px;
+}
+.ctrl-group button {
+  border: none; background: transparent; color: var(--muted);
+  font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 999px;
+  cursor: pointer;
+}
+.ctrl-group button.active { background: var(--text); color: var(--bg); }
+.ctrl-btn {
+  border: 1px solid var(--border); background: var(--panel);
+  color: var(--text); font: inherit; font-size: 12px;
+  padding: 6px 11px; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.ctrl-btn:hover { background: var(--panel-soft); }
+.ctrl-btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.ctrl-btn.primary:hover { background: #2d2724; }
+
+h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--muted); font-weight: 600;
+  margin: 22px 0 10px; padding: 0 2px;
+}
+
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px; margin-bottom: 6px;
+}
+@media (max-width: 880px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.kpi {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow);
+  position: relative; overflow: hidden;
+}
+.kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1.1px; font-weight: 600; }
+.kpi-value { font-size: 28px; font-weight: 600; letter-spacing: -0.3px; margin-top: 6px; line-height: 1.1; }
+.kpi-sub { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+.delta-pos { color: var(--pos); font-weight: 600; }
+.delta-neg { color: var(--neg); font-weight: 600; }
+.delta-flat { color: var(--muted); font-weight: 600; }
+
+.row { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 14px; margin-top: 10px; }
+@media (max-width: 980px) { .row { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow);
+  position: relative;
+}
+.panel h3 {
+  font-size: 13px; font-weight: 600; margin: 0 0 12px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.panel h3 .hint { font-weight: 400; color: var(--muted); font-size: 11px; }
+
+table.channels { width: 100%; border-collapse: collapse; }
+table.channels th, table.channels td {
+  text-align: right; padding: 7px 6px; font-size: 13px; border-bottom: 1px solid var(--border);
+}
+table.channels th:first-child, table.channels td:first-child { text-align: left; }
+table.channels th {
+  font-weight: 500; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.7px;
+  border-bottom: 1px solid var(--border-strong);
+}
+table.channels tbody tr:last-child td { border-bottom: 1px solid var(--border-strong); font-weight: 600; }
+.bar-cell { position: relative; min-width: 110px; }
+.bar-track {
+  position: relative; height: 6px; background: var(--panel-soft);
+  border-radius: 4px; margin-top: 4px; overflow: hidden;
+}
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+
+.funnel-stages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 700px) { .funnel-stages { grid-template-columns: repeat(2, 1fr); } }
+.fstage {
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  background: var(--panel-soft); position: relative;
+}
+.fstage-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.fstage-value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.fstage-pct { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.fdrop {
+  font-size: 10px; color: var(--terra); margin-top: 4px;
+  font-weight: 600;
+}
+
+.chart-wrap { position: relative; height: 240px; margin-top: 4px; }
+.chart-wrap.tall { height: 280px; }
+
+.posts-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px; margin-top: 4px;
+}
+.post-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-soft); padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  font-size: 12px;
+}
+.post-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.network-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.4px;
+  padding: 3px 8px; border-radius: 999px; text-transform: uppercase;
+}
+.network-pill.ig { background: var(--gold-soft); color: #7d5e2e; }
+.network-pill.tt { background: var(--slate-soft); color: var(--slate); }
+.post-time { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.post-text { color: var(--text); font-size: 12px; line-height: 1.4; max-height: 3.6em; overflow: hidden; }
+.post-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+.stat { display: flex; flex-direction: column; }
+.stat-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; }
+.stat-value { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.post-link { color: var(--emerald); font-size: 11px; text-decoration: none; font-weight: 500; }
+.post-link:hover { text-decoration: underline; }
+
+.skeleton { background: linear-gradient(90deg, var(--panel-soft) 0%, var(--border) 50%, var(--panel-soft) 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 4px; height: 14px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+.empty {
+  padding: 24px; text-align: center; color: var(--muted); font-size: 13px;
+  border: 1px dashed var(--border-strong); border-radius: 10px;
+  background: var(--panel-soft);
+}
+.error {
+  padding: 14px; color: var(--terra); font-size: 12px;
+  background: var(--terra-soft); border: 1px solid #ecc8c2; border-radius: 10px;
+}
+.foot { font-size: 11px; color: var(--muted); margin-top: 22px; padding: 10px 4px; line-height: 1.55; }
+.foot code { background: var(--panel-soft); padding: 1px 5px; border-radius: 4px; font-size: 10.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark">CĀ</div>
+    <div>
+      <div class="brand-title">CĀIRO live funnel</div>
+      <div class="brand-sub" id="brand-sub">today · channel · content</div>
+    </div>
+  </div>
+  <div class="controls">
+    <span class="fresh" id="fresh">
+      <span class="fresh-dot pulsing" id="fresh-dot"></span>
+      <span id="fresh-text">loading…</span>
+    </span>
+    <div class="ctrl-group" id="interval-group" title="Refresh interval">
+      <button data-interval="15">15s</button>
+      <button data-interval="30">30s</button>
+      <button data-interval="60" class="active">60s</button>
+      <button data-interval="120">2m</button>
+    </div>
+    <button class="ctrl-btn" id="pause-btn">Pause</button>
+  </div>
+</div>
+
+<h2>Today at a glance</h2>
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-label">Sessions</div><div class="kpi-value" id="kpi-sessions">—</div><div class="kpi-sub" id="kpi-sessions-sub">vs yesterday EOD</div></div>
+  <div class="kpi"><div class="kpi-label">Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-sub" id="kpi-orders-sub">vs yesterday EOD</div></div>
+  <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-sub" id="kpi-revenue-sub">vs yesterday EOD</div></div>
+  <div class="kpi"><div class="kpi-label">Conv. rate</div><div class="kpi-value" id="kpi-cvr">—</div><div class="kpi-sub" id="kpi-cvr-sub">today blended</div></div>
+</div>
+
+<h2>Channel performance</h2>
+<div class="row">
+  <div class="panel">
+    <h3>Sessions by channel <span class="hint" id="channel-note">UTM-bucketed</span></h3>
+    <div id="channel-table">
+      <div class="skeleton" style="height: 120px;"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>Orders &amp; revenue by source <span class="hint">order-side bucketing</span></h3>
+    <div id="orders-table">
+      <div class="skeleton" style="height: 120px;"></div>
+    </div>
+  </div>
+</div>
+
+<h2>Funnel</h2>
+<div class="panel">
+  <h3>Sessions → cart → checkout → order <span class="hint">today</span></h3>
+  <div id="funnel-stages" class="funnel-stages">
+    <div class="fstage"><div class="fstage-label">Sessions</div><div class="fstage-value">—</div></div>
+    <div class="fstage"><div class="fstage-label">Cart adds</div><div class="fstage-value">—</div></div>
+    <div class="fstage"><div class="fstage-label">Reached checkout</div><div class="fstage-value">—</div></div>
+    <div class="fstage"><div class="fstage-label">Completed</div><div class="fstage-value">—</div></div>
+  </div>
+</div>
+
+<h2>Hourly pulse</h2>
+<div class="panel">
+  <h3>Sessions &amp; orders by hour <span class="hint">shop tz · Europe/Stockholm</span></h3>
+  <div class="chart-wrap tall"><canvas id="hourly-chart"></canvas></div>
+</div>
+
+<h2>Today's organic content</h2>
+<div class="panel">
+  <h3>Latest IG reels &amp; TT videos <span class="hint">last 48h · top 8</span></h3>
+  <div id="posts-grid" class="posts-grid">
+    <div class="skeleton" style="height: 110px;"></div>
+    <div class="skeleton" style="height: 110px;"></div>
+    <div class="skeleton" style="height: 110px;"></div>
+  </div>
+</div>
+
+<div class="foot">
+  Sources: Shopify <code>run-analytics-query</code> (sessions, sales, funnel, hourly) · Metricool <code>get_instagram_reels</code> + <code>get_tiktok_videos</code> (blog 6200400). Channel sessions use UTM source/medium bucketing; order-side sources use Shopify's <code>order_referrer_source</code> (coarser — paid social orders typically bucket as <em>social</em>). Today is interpreted in shop tz (Europe/Stockholm). Shopify's analytics pipeline lags 5–15 minutes — current-hour bars will look light until the hour finishes settling.
+</div>
+
+</div>
+
+<script>
+'use strict';
+
+const TOOL_SHOPIFY = 'mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query';
+const TOOL_IG = 'mcp__mcp-metricool__get_instagram_reels';
+const TOOL_TT = 'mcp__mcp-metricool__get_tiktok_videos';
+const BLOG_ID = 6200400;
+const SHOP_TZ = 'Europe/Stockholm';
+
+const CH_COLORS = {
+  'Meta paid':         '#0f4c3a',
+  'Direct':            '#7a6f63',
+  'Instagram organic': '#b08d57',
+  'TikTok organic':    '#1c1816',
+  'Klaviyo email':     '#4a5568',
+  'Google organic':    '#5b8a72',
+  'Facebook organic':  '#8a6e3e',
+  'Other':             '#c9b78a'
+};
+
+const STATE = {
+  intervalSec: 60,
+  paused: false,
+  timer: null,
+  lastRefreshedAt: null,
+  charts: { hourly: null }
+};
+
+// --- helpers ---
+function fmtInt(n) { return new Intl.NumberFormat('en-GB').format(Math.round(n || 0)); }
+function fmtMoney(n) { return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(n) || 0); }
+function fmtPct(n, dp) { dp = (dp == null) ? 2 : dp; return ((Number(n) || 0) * 100).toFixed(dp) + '%'; }
+function fmtPctRaw(n, dp) { dp = (dp == null) ? 1 : dp; return (Number(n) || 0).toFixed(dp) + '%'; }
+function todayISO() {
+  const d = new Date();
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: SHOP_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  return fmt.format(d);
+}
+function yesterdayISO() {
+  const d = new Date(Date.now() - 86400000);
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: SHOP_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  return fmt.format(d);
+}
+function hourLabel(isoTimestamp) {
+  const d = new Date(isoTimestamp);
+  return new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+}
+function dayHourLabel(iso) {
+  const d = new Date(iso);
+  const day = new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, weekday: 'short' }).format(d);
+  const hr = new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+  return day + ' ' + hr;
+}
+function relTime(d) {
+  const s = Math.round((Date.now() - d) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + 'm ago';
+  return Math.round(m / 60) + 'h ago';
+}
+
+function bucketChannel(utmSrc, utmMed, refSrc, refName) {
+  const s = (utmSrc || '').toLowerCase();
+  const m = (utmMed || '').toLowerCase();
+  const rs = (refSrc || '').toLowerCase();
+  const rn = (refName || '').toLowerCase();
+  const paid = ['paid', 'paid_social', 'paidsocial', 'cpc', 'ppc'].includes(m);
+  const metaSrc = ['meta', 'fb', 'ig', 'facebook', 'instagram'].includes(s);
+  if (metaSrc && paid) return 'Meta paid';
+  if (s === 'instagram' && m === 'social_organic') return 'Instagram organic';
+  if (s === 'tiktok' && m === 'social_organic') return 'TikTok organic';
+  if (s === 'facebook' && m === 'social_organic') return 'Facebook organic';
+  if (rs === 'email') return 'Klaviyo email';
+  if (rs === 'search' && (rn === 'google' || !rn)) return 'Google organic';
+  if (!s && !m && (rs === 'direct' || !rs)) return 'Direct';
+  if (rs === 'social' && rn === 'instagram' && !paid) return 'Instagram organic';
+  if (rs === 'social' && rn === 'tiktok' && !paid) return 'TikTok organic';
+  if (rs === 'social' && rn === 'facebook' && !paid) return 'Facebook organic';
+  return 'Other';
+}
+
+async function callTool(name, args) {
+  try {
+    return await window.cowork.callMcpTool(name, args || {});
+  } catch (e) {
+    console.error('callMcpTool failed', name, e);
+    return { __error: e && e.message ? e.message : String(e) };
+  }
+}
+
+// --- fetchers ---
+async function fetchAll() {
+  const t = todayISO();
+  const y = yesterdayISO();
+  const queries = {
+    channelMix: `FROM sessions SHOW sessions GROUP BY utm_source, utm_medium, referrer_source, referrer_name SINCE ${t} UNTIL today`,
+    orderMix:   `FROM sales SHOW orders, total_sales GROUP BY order_referrer_source, order_referrer_name SINCE ${t} UNTIL today`,
+    funnel:     `FROM sessions SHOW sessions, sessions_with_cart_additions, sessions_that_reached_checkout, sessions_that_completed_checkout, conversion_rate SINCE ${t} UNTIL today`,
+    sessionsHr: `FROM sessions SHOW sessions TIMESERIES hour SINCE ${t} UNTIL today`,
+    ordersHr:   `FROM sales SHOW orders, total_sales TIMESERIES hour SINCE ${t} UNTIL today`,
+    yEod:       `FROM sales SHOW orders, total_sales SINCE ${y} UNTIL ${y}`,
+    ySessions:  `FROM sessions SHOW sessions SINCE ${y} UNTIL ${y}`
+  };
+
+  const [channelMix, orderMix, funnel, sessionsHr, ordersHr, yEod, ySessions, igReels, ttVideos] = await Promise.all([
+    callTool(TOOL_SHOPIFY, { query: queries.channelMix }),
+    callTool(TOOL_SHOPIFY, { query: queries.orderMix }),
+    callTool(TOOL_SHOPIFY, { query: queries.funnel }),
+    callTool(TOOL_SHOPIFY, { query: queries.sessionsHr }),
+    callTool(TOOL_SHOPIFY, { query: queries.ordersHr }),
+    callTool(TOOL_SHOPIFY, { query: queries.yEod }),
+    callTool(TOOL_SHOPIFY, { query: queries.ySessions }),
+    callTool(TOOL_IG, { init_date: y, end_date: t, blog_id: BLOG_ID }),
+    callTool(TOOL_TT, { init_date: y, end_date: t, blog_id: BLOG_ID })
+  ]);
+
+  return { channelMix, orderMix, funnel, sessionsHr, ordersHr, yEod, ySessions, igReels, ttVideos };
+}
+
+// --- renderers ---
+function renderKpis(data) {
+  const fr = data.funnel.rows && data.funnel.rows[0] ? data.funnel.rows[0] : null;
+  const sessions = fr ? Number(fr[0]) : 0;
+  const cvr = fr ? Number(fr[4]) : 0;
+  let orders = 0, revenue = 0;
+  (data.orderMix.rows || []).forEach(r => {
+    orders += Number(r[2]) || 0;
+    revenue += Number(r[3]) || 0;
+  });
+
+  const yOrders = data.yEod.rows && data.yEod.rows[0] ? Number(data.yEod.rows[0][0]) : 0;
+  const yRev = data.yEod.rows && data.yEod.rows[0] ? Number(data.yEod.rows[0][1]) : 0;
+  const ySess = data.ySessions.rows && data.ySessions.rows[0] ? Number(data.ySessions.rows[0][0]) : 0;
+
+  const dPct = (cur, prev) => {
+    if (!prev) return null;
+    return ((cur - prev) / prev) * 100;
+  };
+  const fmtDelta = (d, label) => {
+    if (d === null) return '<span class="delta-flat">no baseline · ' + label + '</span>';
+    const cls = d > 0.5 ? 'delta-pos' : d < -0.5 ? 'delta-neg' : 'delta-flat';
+    const arrow = d > 0.5 ? '▲' : d < -0.5 ? '▼' : '·';
+    return '<span class="' + cls + '">' + arrow + ' ' + Math.abs(d).toFixed(1) + '% ' + label + '</span>';
+  };
+
+  document.getElementById('kpi-sessions').textContent = fmtInt(sessions);
+  document.getElementById('kpi-sessions-sub').innerHTML = fmtDelta(dPct(sessions, ySess), 'vs yest. EOD (' + fmtInt(ySess) + ')');
+
+  document.getElementById('kpi-orders').textContent = fmtInt(orders);
+  document.getElementById('kpi-orders-sub').innerHTML = fmtDelta(dPct(orders, yOrders), 'vs yest. EOD (' + fmtInt(yOrders) + ')');
+
+  document.getElementById('kpi-revenue').textContent = fmtMoney(revenue);
+  document.getElementById('kpi-revenue-sub').innerHTML = fmtDelta(dPct(revenue, yRev), 'vs yest. EOD (' + fmtMoney(yRev) + ')');
+
+  document.getElementById('kpi-cvr').textContent = fmtPct(cvr);
+  const aov = orders > 0 ? revenue / orders : 0;
+  document.getElementById('kpi-cvr-sub').textContent = 'AOV ' + fmtMoney(aov) + ' · ' + fmtInt(orders) + ' orders';
+}
+
+function renderChannelTable(data) {
+  const buckets = {};
+  (data.channelMix.rows || []).forEach(row => {
+    const [src, med, refSrc, refName, n] = row;
+    const ch = bucketChannel(src, med, refSrc, refName);
+    buckets[ch] = (buckets[ch] || 0) + (Number(n) || 0);
+  });
+  const totalSessions = Object.values(buckets).reduce((a, b) => a + b, 0);
+  const orderBuckets = {};
+  let totalOrders = 0, totalRev = 0;
+  (data.orderMix.rows || []).forEach(row => {
+    const [refSrc, refName, orders, rev] = row;
+    let label;
+    const rs = (refSrc || '').toLowerCase();
+    const rn = (refName || '').toLowerCase();
+    if (rs === 'social') {
+      label = rn === 'instagram' ? 'Social: instagram' : rn === 'facebook' ? 'Social: facebook' : rn === 'tiktok' ? 'Social: tiktok' : 'Social';
+    } else if (rs === 'email') label = 'Email';
+    else if (rs === 'search') label = 'Search';
+    else if (!rs) label = 'Direct / untagged';
+    else label = (refSrc || 'Other');
+    orderBuckets[label] = orderBuckets[label] || { orders: 0, rev: 0 };
+    orderBuckets[label].orders += Number(orders) || 0;
+    orderBuckets[label].rev += Number(rev) || 0;
+    totalOrders += Number(orders) || 0;
+    totalRev += Number(rev) || 0;
+  });
+
+  const ordered = ['Meta paid', 'Direct', 'Instagram organic', 'Klaviyo email', 'Google organic', 'TikTok organic', 'Facebook organic', 'Other'];
+  const rowsHtml = ordered.map(ch => {
+    const sess = buckets[ch] || 0;
+    if (sess === 0 && ch !== 'Meta paid' && ch !== 'Direct') return '';
+    const pct = totalSessions ? (sess / totalSessions) * 100 : 0;
+    const color = CH_COLORS[ch] || '#999';
+    return `
+      <tr>
+        <td><span class="swatch" style="background:${color}"></span>${ch}</td>
+        <td class="bar-cell">
+          <div style="font-variant-numeric: tabular-nums;">${fmtInt(sess)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct.toFixed(1)}%; background:${color}"></div></div>
+        </td>
+        <td style="font-variant-numeric: tabular-nums; color: var(--muted);">${pct.toFixed(1)}%</td>
+      </tr>`;
+  }).filter(Boolean).join('');
+  const totalRow = `
+    <tr>
+      <td>Total</td>
+      <td style="font-variant-numeric: tabular-nums;">${fmtInt(totalSessions)}</td>
+      <td>—</td>
+    </tr>`;
+  document.getElementById('channel-table').innerHTML = `
+    <table class="channels">
+      <thead><tr><th>Channel</th><th>Sessions</th><th>Share</th></tr></thead>
+      <tbody>${rowsHtml}${totalRow}</tbody>
+    </table>`;
+
+  const orderEntries = Object.entries(orderBuckets).sort((a, b) => b[1].rev - a[1].rev);
+  if (orderEntries.length === 0) {
+    document.getElementById('orders-table').innerHTML = '<div class="empty">No orders today yet.</div>';
+  } else {
+    const oRowsHtml = orderEntries.map(([label, v]) => {
+      const cvr = totalSessions ? (v.orders / totalSessions) * 100 : 0;
+      return `
+        <tr>
+          <td>${label}</td>
+          <td style="font-variant-numeric: tabular-nums;">${fmtInt(v.orders)}</td>
+          <td style="font-variant-numeric: tabular-nums;">${fmtMoney(v.rev)}</td>
+          <td style="font-variant-numeric: tabular-nums; color: var(--muted);">${fmtMoney(v.orders ? v.rev / v.orders : 0)}</td>
+        </tr>`;
+    }).join('');
+    const tot = `
+      <tr>
+        <td>Total</td>
+        <td style="font-variant-numeric: tabular-nums;">${fmtInt(totalOrders)}</td>
+        <td style="font-variant-numeric: tabular-nums;">${fmtMoney(totalRev)}</td>
+        <td style="font-variant-numeric: tabular-nums;">${fmtMoney(totalOrders ? totalRev / totalOrders : 0)}</td>
+      </tr>`;
+    document.getElementById('orders-table').innerHTML = `
+      <table class="channels">
+        <thead><tr><th>Source</th><th>Orders</th><th>Revenue</th><th>AOV</th></tr></thead>
+        <tbody>${oRowsHtml}${tot}</tbody>
+      </table>`;
+  }
+}
+
+function renderFunnel(data) {
+  const fr = data.funnel.rows && data.funnel.rows[0] ? data.funnel.rows[0] : null;
+  if (!fr) {
+    document.getElementById('funnel-stages').innerHTML = '<div class="empty">No funnel data yet today.</div>';
+    return;
+  }
+  const sessions = Number(fr[0]) || 0;
+  const cart = Number(fr[1]) || 0;
+  const checkout = Number(fr[2]) || 0;
+  const completed = Number(fr[3]) || 0;
+  const stage = (label, val, base, prevVal) => {
+    const pctOfStart = base ? (val / base) * 100 : 0;
+    const drop = prevVal != null && prevVal > 0 ? ((prevVal - val) / prevVal) * 100 : null;
+    return `
+      <div class="fstage">
+        <div class="fstage-label">${label}</div>
+        <div class="fstage-value">${fmtInt(val)}</div>
+        <div class="fstage-pct">${pctOfStart.toFixed(1)}% of sessions</div>
+        ${drop !== null ? `<div class="fdrop">−${drop.toFixed(0)}% drop from prev. stage</div>` : ''}
+      </div>`;
+  };
+  const html = [
+    stage('Sessions', sessions, sessions, null),
+    stage('Cart adds', cart, sessions, sessions),
+    stage('Reached checkout', checkout, sessions, cart),
+    stage('Completed', completed, sessions, checkout)
+  ].join('');
+  document.getElementById('funnel-stages').innerHTML = html;
+}
+
+function renderHourly(data) {
+  const sRows = (data.sessionsHr.rows || []);
+  const oRows = (data.ordersHr.rows || []);
+  const labels = sRows.map(r => hourLabel(r[0]));
+  const sessSeries = sRows.map(r => Number(r[1]) || 0);
+  const ordersByHour = {};
+  const revByHour = {};
+  oRows.forEach(r => {
+    const k = r[0];
+    ordersByHour[k] = Number(r[1]) || 0;
+    revByHour[k] = Number(r[2]) || 0;
+  });
+  const orderSeries = sRows.map(r => ordersByHour[r[0]] || 0);
+  const revSeries = sRows.map(r => revByHour[r[0]] || 0);
+
+  const ctx = document.getElementById('hourly-chart').getContext('2d');
+  if (STATE.charts.hourly) {
+    STATE.charts.hourly.data.labels = labels;
+    STATE.charts.hourly.data.datasets[0].data = sessSeries;
+    STATE.charts.hourly.data.datasets[1].data = orderSeries;
+    STATE.charts.hourly.data.datasets[2].data = revSeries;
+    STATE.charts.hourly.update('none');
+    return;
+  }
+  STATE.charts.hourly = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'Sessions',
+          data: sessSeries,
+          borderColor: '#0f4c3a',
+          backgroundColor: 'rgba(15, 76, 58, 0.08)',
+          tension: 0.35,
+          fill: true,
+          yAxisID: 'y',
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          borderWidth: 2,
+          order: 2
+        },
+        {
+          type: 'bar',
+          label: 'Orders',
+          data: orderSeries,
+          backgroundColor: '#b08d57',
+          borderRadius: 4,
+          yAxisID: 'y1',
+          maxBarThickness: 14,
+          order: 1
+        },
+        {
+          type: 'bar',
+          label: 'Revenue (€)',
+          data: revSeries,
+          backgroundColor: 'rgba(168, 74, 62, 0.55)',
+          borderRadius: 3,
+          yAxisID: 'y2',
+          maxBarThickness: 8,
+          hidden: true,
+          order: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 }, color: '#1c1816' } },
+        tooltip: {
+          backgroundColor: '#1c1816',
+          padding: 10,
+          callbacks: {
+            label: function(ctx) {
+              const v = ctx.parsed.y;
+              if (ctx.dataset.label === 'Revenue (€)') return ' ' + ctx.dataset.label + ': ' + fmtMoney(v);
+              return ' ' + ctx.dataset.label + ': ' + fmtInt(v);
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font: { size: 10 }, color: '#7a6f63' }, grid: { display: false } },
+        y: {
+          position: 'left', beginAtZero: true,
+          title: { display: true, text: 'Sessions', font: { size: 10 }, color: '#7a6f63' },
+          ticks: { font: { size: 10 }, color: '#7a6f63', precision: 0 },
+          grid: { color: '#f0e8da' }
+        },
+        y1: {
+          position: 'right', beginAtZero: true,
+          title: { display: true, text: 'Orders', font: { size: 10 }, color: '#7a6f63' },
+          ticks: { font: { size: 10 }, color: '#7a6f63', precision: 0 },
+          grid: { display: false }
+        },
+        y2: { display: false, beginAtZero: true }
+      }
+    }
+  });
+}
+
+function renderPosts(data) {
+  const ig = (data.igReels && data.igReels.result && data.igReels.result.data) || [];
+  const tt = (data.ttVideos && data.ttVideos.result && data.ttVideos.result.data) || [];
+  const items = [];
+  ig.forEach(r => {
+    const t = r.publishedAt && r.publishedAt.dateTime ? new Date(r.publishedAt.dateTime + (r.publishedAt.dateTime.indexOf('T') >= 0 && r.publishedAt.dateTime.length <= 19 ? '+02:00' : '')) : null;
+    items.push({
+      net: 'IG',
+      time: t,
+      content: r.content || '',
+      url: r.url,
+      stats: [
+        { label: 'Reach', value: fmtInt(r.reach || 0) },
+        { label: 'Eng %', value: fmtPctRaw(r.engagement || 0) },
+        { label: 'Likes', value: fmtInt(r.likes || 0) }
+      ],
+      extra: (r.reelsSkipRate != null) ? ('skip rate ' + Number(r.reelsSkipRate).toFixed(0) + '%') : ''
+    });
+  });
+  tt.forEach(r => {
+    const t = r.createTime ? new Date(r.createTime) : null;
+    items.push({
+      net: 'TT',
+      time: t,
+      content: r.title || r.videoDescription || '',
+      url: r.shareUrl,
+      stats: [
+        { label: 'Views', value: fmtInt(r.viewCount || 0) },
+        { label: 'Eng %', value: fmtPctRaw(r.engagement || 0) },
+        { label: 'Likes', value: fmtInt(r.likeCount || 0) }
+      ],
+      extra: (r.shareCount != null) ? (fmtInt(r.shareCount) + ' shares') : ''
+    });
+  });
+  items.sort((a, b) => (b.time?.getTime() || 0) - (a.time?.getTime() || 0));
+  const top = items.slice(0, 8);
+  if (top.length === 0) {
+    document.getElementById('posts-grid').innerHTML = '<div class="empty">No IG reels or TT videos in the last 48h.</div>';
+    return;
+  }
+  const html = top.map(it => {
+    const cls = it.net === 'IG' ? 'ig' : 'tt';
+    const tlabel = it.time ? dayHourLabel(it.time.toISOString()) : '—';
+    return `
+      <div class="post-card">
+        <div class="post-head">
+          <span class="network-pill ${cls}">${it.net === 'IG' ? 'Instagram' : 'TikTok'}</span>
+          <span class="post-time">${tlabel}</span>
+        </div>
+        <div class="post-text">${(it.content || '').replace(/[<>]/g, '').slice(0, 140)}${(it.content || '').length > 140 ? '…' : ''}</div>
+        <div class="post-stats">
+          ${it.stats.map(s => `<div class="stat"><div class="stat-label">${s.label}</div><div class="stat-value">${s.value}</div></div>`).join('')}
+        </div>
+        <div style="display:flex; align-items:center; justify-content: space-between;">
+          <span style="color: var(--muted); font-size: 11px;">${it.extra || ''}</span>
+          ${it.url ? `<a class="post-link" href="${it.url}" target="_blank" rel="noopener">Open ↗</a>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('posts-grid').innerHTML = html;
+}
+
+function checkErrors(data) {
+  const errs = [];
+  ['channelMix', 'orderMix', 'funnel', 'sessionsHr', 'ordersHr', 'yEod', 'ySessions', 'igReels', 'ttVideos'].forEach(k => {
+    if (data[k] && data[k].__error) errs.push(k + ': ' + data[k].__error);
+  });
+  return errs;
+}
+
+function setFreshness(state) {
+  const dot = document.getElementById('fresh-dot');
+  const text = document.getElementById('fresh-text');
+  if (state === 'loading') { dot.className = 'fresh-dot pulsing'; text.textContent = 'refreshing…'; return; }
+  if (state === 'paused') { dot.className = 'fresh-dot paused'; text.textContent = 'paused · last ' + (STATE.lastRefreshedAt ? relTime(STATE.lastRefreshedAt) : 'never'); return; }
+  if (state === 'error') { dot.className = 'fresh-dot stale'; text.textContent = 'error · last ' + (STATE.lastRefreshedAt ? relTime(STATE.lastRefreshedAt) : 'never'); return; }
+  if (state === 'fresh') {
+    dot.className = 'fresh-dot pulsing';
+    text.textContent = 'fresh · ' + (STATE.lastRefreshedAt ? relTime(STATE.lastRefreshedAt) : 'now');
+    setTimeout(() => { if (!STATE.paused) dot.className = 'fresh-dot'; }, 1200);
+    return;
+  }
+}
+
+let _refreshing = false;
+async function refresh() {
+  if (_refreshing) return;
+  _refreshing = true;
+  setFreshness('loading');
+  try {
+    const data = await fetchAll();
+    const errs = checkErrors(data);
+    if (errs.length === ['channelMix', 'orderMix', 'funnel', 'sessionsHr', 'ordersHr', 'yEod', 'ySessions', 'igReels', 'ttVideos'].length) {
+      setFreshness('error');
+      console.error('all calls failed', errs);
+      return;
+    }
+    if (!data.channelMix.__error) renderChannelTable(data);
+    if (!data.funnel.__error) renderFunnel(data);
+    if (!data.sessionsHr.__error && !data.ordersHr.__error) renderHourly(data);
+    if (!data.igReels.__error || !data.ttVideos.__error) renderPosts(data);
+    if (!data.funnel.__error && !data.orderMix.__error && !data.yEod.__error) renderKpis(data);
+    STATE.lastRefreshedAt = new Date();
+    setFreshness('fresh');
+  } catch (e) {
+    console.error(e);
+    setFreshness('error');
+  } finally {
+    _refreshing = false;
+  }
+}
+
+function scheduleNext() {
+  if (STATE.timer) { clearTimeout(STATE.timer); STATE.timer = null; }
+  if (STATE.paused) return;
+  STATE.timer = setTimeout(async () => {
+    await refresh();
+    scheduleNext();
+  }, STATE.intervalSec * 1000);
+}
+
+function setInterval(sec) {
+  STATE.intervalSec = sec;
+  document.querySelectorAll('#interval-group button').forEach(b => {
+    b.classList.toggle('active', String(b.dataset.interval) === String(sec));
+  });
+  try { localStorage.setItem('cairo_funnel_interval', String(sec)); } catch (e) {}
+  scheduleNext();
+}
+
+function setPaused(p) {
+  STATE.paused = p;
+  document.getElementById('pause-btn').textContent = p ? 'Resume' : 'Pause';
+  document.getElementById('pause-btn').classList.toggle('primary', p);
+  try { localStorage.setItem('cairo_funnel_paused', p ? '1' : '0'); } catch (e) {}
+  if (p) {
+    if (STATE.timer) clearTimeout(STATE.timer);
+    setFreshness('paused');
+  } else {
+    scheduleNext();
+    setFreshness('fresh');
+  }
+}
+
+document.getElementById('interval-group').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-interval]');
+  if (b) setInterval(Number(b.dataset.interval));
+});
+document.getElementById('pause-btn').addEventListener('click', () => setPaused(!STATE.paused));
+
+// keep relative time fresh
+setTimeout(function tick() {
+  if (STATE.lastRefreshedAt && !STATE.paused) {
+    document.getElementById('fresh-text').textContent = 'fresh · ' + relTime(STATE.lastRefreshedAt);
+  }
+  setTimeout(tick, 5000);
+}, 5000);
+
+// init
+(function init() {
+  try {
+    const sv = localStorage.getItem('cairo_funnel_interval');
+    if (sv) STATE.intervalSec = Number(sv) || 60;
+    const sp = localStorage.getItem('cairo_funnel_paused');
+    if (sp === '1') STATE.paused = true;
+  } catch (e) {}
+  document.querySelectorAll('#interval-group button').forEach(b => {
+    b.classList.toggle('active', String(b.dataset.interval) === String(STATE.intervalSec));
+  });
+  document.getElementById('pause-btn').textContent = STATE.paused ? 'Resume' : 'Pause';
+  document.getElementById('pause-btn').classList.toggle('primary', STATE.paused);
+
+  refresh().then(() => { if (!STATE.paused) scheduleNext(); });
+})();
+</script>
+</body>
+</html>

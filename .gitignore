@@ -1,0 +1,22 @@
+# Local backups created during refactor
+*.bak
+*.bak.*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+
+# Node (only if anyone ever runs node tools here)
+node_modules/
+npm-debug.log*
+
+# Logs / scratch
+*.log
+/tmp/
