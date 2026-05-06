@@ -27,7 +27,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CĀIRO Atlas · 0.1</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"
+  onerror="window.__atlasChartLoadFailed = true;"></script>
 <style>
 :root {
   color-scheme: dark;
@@ -1534,6 +1535,66 @@ function safeRender(name, fn) {
   }
 }
 
+// ================ Setup banner — visible cold-clone diagnostics ================
+// Renders a fixed-position banner into <body> for things the user MUST see
+// even if the rest of the dashboard never paints (e.g. Cowork runtime missing,
+// Chart.js CDN blocked, every MCP tool failing to resolve). Stacks vertically,
+// dismissable, idempotent (calling with the same id replaces the previous one).
+function __atlasBanner(id, level, html) {
+  try {
+    let host = document.getElementById('__atlas-banners');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = '__atlas-banners';
+      host.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;display:flex;flex-direction:column;gap:1px;font:12px/1.4 system-ui,sans-serif;';
+      (document.body || document.documentElement).appendChild(host);
+    }
+    const colors = level === 'error'
+      ? 'background:#3a1612;color:#ffd9d2;border-bottom:1px solid #6b2a22;'
+      : level === 'warn'
+        ? 'background:#3a2f12;color:#ffe9b8;border-bottom:1px solid #6b5722;'
+        : 'background:#16302a;color:#cdf3e3;border-bottom:1px solid #2a6b58;';
+    let row = document.getElementById('__atlas-banner-' + id);
+    if (!row) {
+      row = document.createElement('div');
+      row.id = '__atlas-banner-' + id;
+      host.appendChild(row);
+    }
+    row.style.cssText = colors + 'padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+    row.innerHTML = '<div style="flex:1">' + html + '</div><button type="button" aria-label="Dismiss" style="background:transparent;border:0;color:inherit;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.7">×</button>';
+    row.querySelector('button').addEventListener('click', () => row.remove());
+  } catch (_e) { /* never let the banner itself fail boot */ }
+}
+
+// Cowork runtime + Chart.js boot probe — idempotent, called from init IIFE.
+// Surfaces silent breakage that would otherwise look like "dashboard just loads
+// blank skeletons forever".
+function probeCoworkRuntime() {
+  const cw = window.cowork;
+  const hasCallTool = cw && typeof cw.callMcpTool === 'function';
+  const hasAskClaude = cw && typeof cw.askClaude === 'function';
+  if (!hasCallTool) {
+    __atlasBanner('cowork-missing', 'error',
+      '<strong>Cowork runtime not detected.</strong> ' +
+      'This artifact must run inside Claude.ai\'s live-artifact iframe (Cowork). ' +
+      'If you opened <code>index.html</code> directly in a browser, that\'s why nothing loads. ' +
+      'See README.md → "Run it cold" for the upload procedure.');
+    if (typeof atlasLog === 'function') atlasLog('error', 'probe', 'window.cowork.callMcpTool missing');
+    return false;
+  }
+  if (!hasAskClaude && typeof atlasLog === 'function') {
+    atlasLog('warn', 'probe', 'window.cowork.askClaude missing — chat bubble will fall back to canned suggestions');
+  }
+  if (window.__atlasChartLoadFailed || typeof window.Chart === 'undefined') {
+    __atlasBanner('chart-missing', 'warn',
+      '<strong>Chart.js failed to load.</strong> ' +
+      'CDN blocked, SRI mismatch, or offline. Charts will not render but tables/KPIs will. ' +
+      'See STACK.md → "Vendoring Chart.js" for the offline fallback.');
+    if (typeof atlasLog === 'function') atlasLog('warn', 'probe', 'Chart.js global missing');
+  }
+  return true;
+}
+
 // Idempotent innerHTML — only writes if the string has actually changed.
 // Eliminates the visible repaint flash on auto-refresh cycles where
 // the rendered HTML matches the previous render (most cycles within 60s).
@@ -1656,13 +1717,53 @@ function renderErrorLog() {
   content.innerHTML = rows;
 }
 
-// ================ Existing tool constants ================
-const TOOL_SHOPIFY = 'mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query';
-const TOOL_IG_REELS = 'mcp__mcp-metricool__get_instagram_reels';
-const TOOL_TT_VIDEOS = 'mcp__mcp-metricool__get_tiktok_videos';
-// (Drive search/read tool constants removed alongside GSC; reinstate from git if you re-add.)
-const METRICOOL_BLOG_ID = 6200400;
-const SHOP_TZ = 'Europe/Stockholm';
+/* ============================================================================
+ * ATLAS_CONFIG — the ONE place to edit when forking this artifact
+ * ----------------------------------------------------------------------------
+ * Cowork artifacts run inside Claude.ai's live-artifact iframe. The MCP tool
+ * names below are tied to the MCP servers connected to *this* Cowork project.
+ * When you fork the repo and load it as a new artifact, these UUIDs almost
+ * certainly will NOT match — you must rediscover them from your own Cowork
+ * connection panel. See README.md "Run it cold" + STACK.md "Swapping MCP UUIDs".
+ *
+ * Quick swap procedure:
+ *   1. In your live artifact's devtools console: `Object.keys(window.cowork)`
+ *      and inspect the registered tool names (or ask the parent Cowork chat
+ *      to list MCP tools for you).
+ *   2. Update the strings below to match your registered names.
+ *   3. Reload the artifact. The boot probe (probeCoworkRuntime) will banner
+ *      any tool name that fails to resolve at first call.
+ *
+ * Anything brand-specific (timezone, blog id, brand slug for localStorage
+ * keys, accent colors) belongs here too — easier to fork, easier to grep.
+ * ========================================================================== */
+const ATLAS_CONFIG = Object.freeze({
+  // MCP tool names — per-Cowork-project, REPLACE on fork.
+  mcp: {
+    shopifyAnalytics: 'mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query',
+    igReels:          'mcp__mcp-metricool__get_instagram_reels',
+    ttVideos:         'mcp__mcp-metricool__get_tiktok_videos',
+    // Motion Creative Analytics — declared in meta, wired up by future renderers.
+    caInsights:       'mcp__1cc7fc04-f423-4cb4-a494-9b495284d39b__get_creative_insights',
+    caSummary:        'mcp__1cc7fc04-f423-4cb4-a494-9b495284d39b__get_creative_summary',
+    caTranscript:     'mcp__1cc7fc04-f423-4cb4-a494-9b495284d39b__get_creative_transcript'
+  },
+  // Brand / locale — change on fork.
+  metricoolBlogId: 6200400,
+  shopTz: 'Europe/Stockholm',
+  // localStorage key prefix — change if you fork under a new brand to avoid
+  // collisions when running both artifacts in the same browser.
+  storagePrefix: 'cairo_'
+});
+// Expose for in-artifact devtools inspection / runtime override.
+window.ATLAS_CONFIG = ATLAS_CONFIG;
+
+// Backwards-compatible aliases — every existing call site references these.
+const TOOL_SHOPIFY    = ATLAS_CONFIG.mcp.shopifyAnalytics;
+const TOOL_IG_REELS   = ATLAS_CONFIG.mcp.igReels;
+const TOOL_TT_VIDEOS  = ATLAS_CONFIG.mcp.ttVideos;
+const METRICOOL_BLOG_ID = ATLAS_CONFIG.metricoolBlogId;
+const SHOP_TZ         = ATLAS_CONFIG.shopTz;
 
 const STATE = {
   range: 'today',
@@ -2206,6 +2307,11 @@ function unwrapResponse(raw) {
 }
 async function callTool(name, args) {
   const label = (name.split('__').pop() || name);
+  if (!window.cowork || typeof window.cowork.callMcpTool !== 'function') {
+    const msg = 'window.cowork.callMcpTool unavailable — not running inside a Cowork artifact runtime';
+    atlasLog('error', label, msg);
+    return { __error: msg };
+  }
   try {
     const unwrapped = unwrapResponse(await window.cowork.callMcpTool(name, args || {}));
     if (unwrapped && unwrapped.__error) atlasLog('error', label, unwrapped.__error);
@@ -4374,6 +4480,10 @@ window.CairoAtlas = {
   // on every [data-slot] element. Idempotent — safe to re-run, but we only call
   // it once at boot since refresh() never recreates slot containers.
   safeRender('init.layout', () => LayoutManager.init());
+
+  // 5d. probe the Cowork runtime + Chart.js — surfaces silent boot breakage
+  // in a banner instead of a sea of red logs no one looks at.
+  safeRender('init.probe', probeCoworkRuntime);
 
   // 6. boot complete — kick off the first refresh + auto-refresh loop
   atlasLog('info', 'init', 'CĀIRO Atlas v0.1 booted');
