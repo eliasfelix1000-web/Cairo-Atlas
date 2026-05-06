@@ -293,6 +293,9 @@ h2 {
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
+#cf-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1100px) { #cf-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { #cf-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 720px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 .funnel-grid {
@@ -304,7 +307,10 @@ h2 {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px; padding: 12px 14px 11px;
-  position: relative; overflow: hidden;
+  position: relative;
+  /* No overflow:hidden — info-icon tooltips need to escape upward. The .kpi-sub
+     handles its own clamping internally; super-long .kpi-value text is rare and
+     wraps gracefully because of min-width:0. */
   min-width: 0;
 }
 .kpi-label {
@@ -322,14 +328,69 @@ h2 {
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   line-height: 1.4;
-  max-height: 2.8em;
+  max-height: 4.2em;
 }
 .delta-pos { color: var(--pos); font-weight: 600; }
 .delta-neg { color: var(--neg); font-weight: 600; }
 .delta-flat { color: var(--muted); font-weight: 500; }
+
+/* ====== DRAG-AND-DROP (LayoutManager) ====== */
+/* Every draggable surface declares data-slot and data-slot-group; a drag handle
+   sits absolutely-positioned in its top-right corner. Hidden by default,
+   fades in on hover. Drop-target highlight is a soft inner ring in the accent
+   color. Layout state persists to localStorage so swaps survive reloads. */
+[data-slot] { position: relative; }
+/* When a panel itself is a draggable slot, make room for the corner handle so the
+   right-aligned .hint doesn't get covered by the handle on hover. */
+.panel[data-slot] > h3 { padding-right: 24px; }
+.drag-handle {
+  position: absolute; top: 6px; right: 6px;
+  width: 20px; height: 20px;
+  background: transparent; border: 0; padding: 0;
+  cursor: grab; color: var(--muted-2);
+  display: grid; place-items: center;
+  font-size: 10px; line-height: 1;
+  opacity: 0; transition: opacity 0.15s ease, color 0.12s ease;
+  user-select: none; z-index: 5;
+  border-radius: 3px;
+}
+[data-slot]:hover > .drag-handle,
+[data-slot]:focus-within > .drag-handle { opacity: 0.55; }
+.drag-handle:hover { opacity: 1 !important; color: var(--accent); background: rgba(201, 164, 90, 0.08); }
+.drag-handle:active { cursor: grabbing; }
+/* Six-dot glyph drawn in CSS so we don't depend on a font */
+.drag-handle::before {
+  content: '';
+  display: block;
+  width: 8px; height: 12px;
+  background-image:
+    radial-gradient(circle, currentColor 1px, transparent 1.4px),
+    radial-gradient(circle, currentColor 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  background-position: 0 0, 4px 0;
+  background-repeat: repeat-y;
+  opacity: 0.85;
+}
+[data-slot].dragging {
+  opacity: 0.35;
+  transform: scale(0.985);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+[data-slot].drag-over {
+  box-shadow: 0 0 0 2px var(--accent) inset;
+  background: var(--accent-soft);
+}
+[data-slot].drag-over.kpi { background: var(--accent-soft); }
+/* While ANY drag is in progress, dim non-peer slots so it's visually clear what's a valid drop target */
+body.is-dragging [data-slot]:not(.dragging):not(.drag-peer) { opacity: 0.55; transition: opacity 0.12s ease; }
+body.is-dragging [data-slot].drag-peer { box-shadow: 0 0 0 1px var(--border-strong) inset; }
+/* Hide handles on touch devices — HTML5 drag-and-drop doesn't work reliably there */
+@media (hover: none) {
+  .drag-handle { display: none; }
+}
 
 /* ====== PANEL ====== */
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
@@ -484,6 +545,35 @@ table.tbl tbody tr.totalrow td {
 .foot code { background: var(--panel-alt); padding: 1px 5px; border-radius: 2px; font-size: 10.5px; color: var(--accent); border: 1px solid var(--border); }
 
 .cell-trunc { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ====== INFO ICONS + TOOLTIPS ====== */
+.info-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; margin-left: 4px;
+  border-radius: 50%; border: 1px solid var(--border-strong);
+  background: var(--panel-alt); color: var(--muted-2);
+  font-size: 9px; font-style: italic; font-weight: 700; font-family: 'Times New Roman', serif;
+  cursor: help; vertical-align: middle;
+  position: relative; line-height: 1;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.info-icon:hover { color: var(--accent); border-color: var(--accent); }
+.info-icon::before { content: 'i'; }
+.info-icon:hover::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  background: #16130f; color: #ebe4d3;
+  border: 1px solid #3a352d; border-radius: 4px;
+  padding: 8px 10px; font-size: 11px; font-style: normal; font-weight: 400; font-family: inherit;
+  line-height: 1.45; letter-spacing: 0.1px;
+  white-space: pre-line; width: max-content; max-width: 260px;
+  z-index: 9999; pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  text-align: left; text-transform: none;
+}
+th .info-icon { vertical-align: baseline; margin-left: 3px; }
+.kpi-label .info-icon { margin-left: 3px; }
+h3 .info-icon { vertical-align: middle; margin-left: 5px; }
 
 /* ====== LOADING OVERLAY (shared) ====== */
 .is-loading { position: relative; min-height: 36px; }
@@ -1166,6 +1256,7 @@ main.sections { display: block; }
       Refresh
     </button>
     <button class="ctrl-btn" id="pause-btn">Pause</button>
+    <button class="ctrl-btn" id="layout-reset-btn" title="Reset all dragged blocks back to their original positions" style="font-size: 11px;">Reset layout</button>
   </div>
   <div class="topbar-row date-row">
     <button class="daterange-trigger" id="daterange-btn" type="button" title="Change date range">
@@ -1202,17 +1293,17 @@ main.sections { display: block; }
 </div>
 
 <h2>At a glance</h2>
-<div class="kpi-grid">
-  <div class="kpi"><div class="kpi-label">Sessions</div><div class="kpi-value" id="kpi-sessions">—</div><div class="kpi-sub" id="kpi-sessions-sub">—</div></div>
-  <div class="kpi"><div class="kpi-label">UTM-tagged</div><div class="kpi-value" id="kpi-tagged">—</div><div class="kpi-sub" id="kpi-tagged-sub">share with utm_source</div></div>
-  <div class="kpi"><div class="kpi-label">Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-sub" id="kpi-orders-sub">—</div></div>
-  <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-sub" id="kpi-revenue-sub">—</div></div>
-  <div class="kpi"><div class="kpi-label">Conv. rate</div><div class="kpi-value" id="kpi-cvr">—</div><div class="kpi-sub" id="kpi-cvr-sub">blended · AOV —</div></div>
+<div class="kpi-grid" id="grid-glance">
+  <div class="kpi" data-slot="kpi-sessions" data-slot-group="kpi-glance"><div class="kpi-label" id="kpi-sessions-lbl">Sessions</div><div class="kpi-value" id="kpi-sessions">—</div><div class="kpi-sub" id="kpi-sessions-sub">—</div></div>
+  <div class="kpi" data-slot="kpi-tagged" data-slot-group="kpi-glance"><div class="kpi-label" id="kpi-tagged-lbl">UTM-tagged</div><div class="kpi-value" id="kpi-tagged">—</div><div class="kpi-sub" id="kpi-tagged-sub">share with utm_source</div></div>
+  <div class="kpi" data-slot="kpi-orders" data-slot-group="kpi-glance"><div class="kpi-label" id="kpi-orders-lbl">Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-sub" id="kpi-orders-sub">—</div></div>
+  <div class="kpi" data-slot="kpi-revenue" data-slot-group="kpi-glance"><div class="kpi-label" id="kpi-revenue-lbl">Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-sub" id="kpi-revenue-sub">—</div></div>
+  <div class="kpi" data-slot="kpi-cvr" data-slot-group="kpi-glance"><div class="kpi-label" id="kpi-cvr-lbl">Conv. rate</div><div class="kpi-value" id="kpi-cvr">—</div><div class="kpi-sub" id="kpi-cvr-sub">blended · AOV —</div></div>
 </div>
 
 <h2>Volume over the period</h2>
 <div class="panel">
-  <h3>Sessions &amp; orders <span class="hint" id="volume-hint">hourly · shop tz</span></h3>
+  <h3 id="volume-h3">Sessions &amp; orders <span class="hint" id="volume-hint">hourly · shop tz</span></h3>
   <div class="chart-wrap tall"><canvas id="volume-chart"></canvas></div>
   <div class="chart-legend">
     <span><span class="lline" style="background:var(--accent)"></span>Sessions</span>
@@ -1223,17 +1314,21 @@ main.sections { display: block; }
 
 <h2>Channel breakdown</h2>
 <div class="panel">
-  <h3>By channel <span class="hint">Sidekick-style bucketing · sortable</span></h3>
+  <h3 id="channel-h3">By channel <span class="hint">Sidekick-style bucketing · sortable</span></h3>
   <div id="channel-table"><div class="skeleton" style="height: 200px;"></div></div>
 </div>
 
 <h2>Content → Site funnel <span style="font-size:10px; letter-spacing:0.4px; color: var(--muted-2); margin-left: 6px; text-transform: none;">(content stats from Metricool · site funnel from Shopify UTM)</span></h2>
+<div id="cf-lag-banner" style="display:none; font-size:11px; color: var(--warn); background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 3px; padding: 6px 10px; margin: 0 0 10px 0; letter-spacing: 0.1px;">
+  <span style="font-weight:600;">●</span> <span id="cf-lag-banner-text"></span>
+</div>
 <div class="kpi-grid" id="cf-kpis">
-  <div class="kpi"><div class="kpi-label">Total reach/views</div><div class="kpi-value" id="cf-reach">—</div><div class="kpi-sub" id="cf-reach-sub">Metricool</div></div>
-  <div class="kpi"><div class="kpi-label">Organic sessions</div><div class="kpi-value" id="cf-sessions">—</div><div class="kpi-sub" id="cf-sessions-sub">Shopify · social_organic</div></div>
-  <div class="kpi"><div class="kpi-label">Organic orders</div><div class="kpi-value" id="cf-orders">—</div><div class="kpi-sub" id="cf-orders-sub">Shopify · social_organic</div></div>
-  <div class="kpi"><div class="kpi-label">Organic revenue</div><div class="kpi-value" id="cf-revenue">—</div><div class="kpi-sub" id="cf-revenue-sub">—</div></div>
-  <div class="kpi"><div class="kpi-label">Reach → Order</div><div class="kpi-value" id="cf-rate">—</div><div class="kpi-sub" id="cf-rate-sub">end-to-end CR</div></div>
+  <div class="kpi" data-slot="cf-reach" data-slot-group="kpi-cf"><div class="kpi-label" id="kpi-cf-reach-lbl">Total reach/views</div><div class="kpi-value" id="cf-reach">—</div><div class="kpi-sub" id="cf-reach-sub">Metricool</div></div>
+  <div class="kpi" data-slot="cf-eng" data-slot-group="kpi-cf"><div class="kpi-label" id="kpi-cf-eng-lbl">Avg engagement</div><div class="kpi-value" id="cf-eng">—</div><div class="kpi-sub" id="cf-eng-sub">IG + TT post-weighted</div></div>
+  <div class="kpi" data-slot="cf-sessions" data-slot-group="kpi-cf"><div class="kpi-label" id="kpi-cf-sessions-lbl">Organic sessions</div><div class="kpi-value" id="cf-sessions">—</div><div class="kpi-sub" id="cf-sessions-sub">Shopify · social_organic</div></div>
+  <div class="kpi" data-slot="cf-orders" data-slot-group="kpi-cf"><div class="kpi-label" id="kpi-cf-orders-lbl">Organic orders</div><div class="kpi-value" id="cf-orders">—</div><div class="kpi-sub" id="cf-orders-sub">Shopify · social_organic</div></div>
+  <div class="kpi" data-slot="cf-revenue" data-slot-group="kpi-cf"><div class="kpi-label" id="kpi-cf-revenue-lbl">Organic revenue</div><div class="kpi-value" id="cf-revenue">—</div><div class="kpi-sub" id="cf-revenue-sub">—</div></div>
+  <div class="kpi" data-slot="cf-rate" data-slot-group="kpi-cf"><div class="kpi-label" id="kpi-cf-rate-lbl">Reach → Order</div><div class="kpi-value" id="cf-rate">—</div><div class="kpi-sub" id="cf-rate-sub">end-to-end CR</div></div>
 </div>
 
 <div class="panel" style="margin-top: 12px;">
@@ -1241,15 +1336,20 @@ main.sections { display: block; }
   <div id="cf-table"><div class="skeleton" style="height: 180px;"></div></div>
 </div>
 
-<div class="row" style="margin-top: 12px;">
-  <div class="panel">
-    <h3>Reach split by platform <span class="hint">Metricool · total breakdown</span></h3>
+<div class="row" id="row-cf-charts" style="margin-top: 12px;">
+  <div class="panel" data-slot="panel-reach-donut" data-slot-group="panel-cf-charts">
+    <h3 id="reach-donut-h3">Reach split by platform <span class="hint">Metricool · total breakdown</span></h3>
     <div id="reach-donut-wrap" class="chart-wrap" style="height: 240px;"><canvas id="reach-donut"></canvas></div>
   </div>
-  <div class="panel">
-    <h3>Per-post engagement <span class="hint">Metricool · split-test ranking</span></h3>
+  <div class="panel" data-slot="panel-post-bars" data-slot-group="panel-cf-charts">
+    <h3 id="post-bars-h3">Per-post engagement <span class="hint">Metricool · split-test ranking</span></h3>
     <div id="post-bars-wrap" class="chart-wrap" style="height: 240px;"><canvas id="post-bars"></canvas></div>
   </div>
+</div>
+
+<div class="panel" style="margin-top: 12px;">
+  <h3 id="tt-audience-h3">TikTok audience source <span class="hint">followers vs FYP / discovery · impressionSources</span></h3>
+  <div id="tt-audience-table"><div class="skeleton" style="height: 140px;"></div></div>
 </div>
 
 <div class="panel" style="margin-top: 12px;">
@@ -1273,33 +1373,13 @@ main.sections { display: block; }
   </div>
 </div>
 
-<h2>Creative analysis <span style="font-size:10px; letter-spacing:0.4px; color: var(--muted-2); margin-left: 6px; text-transform: none;">(paid · Motion API · last 30d)</span></h2>
-<div class="panel">
-  <h3>Best · Underrated · Worst <span class="hint" id="ca-hint">click Load to analyse</span></h3>
-  <div id="ca-content">
-    <div class="empty" id="ca-empty" style="text-align:left; padding: 20px 22px;">
-      <div style="font-weight: 600; color: var(--text-2); margin-bottom: 8px;">Pull creative insights from Motion</div>
-      <div style="color: var(--muted); font-size: 11.5px; line-height: 1.6;">
-        Picks 3 creatives from your last 30 days of Meta spend and runs the AI reasoning analysis on each:
-        <ul style="margin: 8px 0; padding-left: 18px;">
-          <li><strong>Best</strong> — highest ROAS above significance threshold</li>
-          <li><strong>Underrated powerhouse</strong> — high ROAS + CTR + hook rate but underspent (the row whose reasoning has the most propagation value)</li>
-          <li><strong>Worst</strong> — lowest ROAS above significance threshold (kill-candidate)</li>
-        </ul>
-        Manual refresh (this section is heavier than the rest — 7+ API calls per analysis).
-      </div>
-      <button class="ctrl-btn primary" id="ca-load-btn" style="margin-top: 14px;">Load analysis</button>
-    </div>
-  </div>
-</div>
-
 <h2>UTM source &amp; medium <span style="font-size:10px; letter-spacing:0.4px; color: var(--muted-2); margin-left: 6px; text-transform: none;">(drill-down)</span></h2>
-<div class="row">
-  <div class="panel">
+<div class="row" id="row-utm">
+  <div class="panel" data-slot="panel-source" data-slot-group="panel-utm">
     <h3>By UTM source <span class="hint">sortable</span></h3>
     <div id="source-table"><div class="skeleton" style="height: 160px;"></div></div>
   </div>
-  <div class="panel">
+  <div class="panel" data-slot="panel-medium" data-slot-group="panel-utm">
     <h3>By UTM medium <span class="hint">sortable</span></h3>
     <div id="medium-table"><div class="skeleton" style="height: 160px;"></div></div>
   </div>
@@ -1307,30 +1387,30 @@ main.sections { display: block; }
 
 <h2>Top campaigns</h2>
 <div class="panel">
-  <h3>Source / medium / campaign <span class="hint">top 15 · sortable</span></h3>
+  <h3 id="campaigns-h3">Source / medium / campaign <span class="hint">top 15 · sortable</span></h3>
   <div id="campaigns-table"><div class="skeleton" style="height: 200px;"></div></div>
 </div>
 
 <h2>Source × medium matrix</h2>
-<div class="row-3">
-  <div class="panel">
-    <h3>Session matrix <span class="hint">cell intensity = relative volume</span></h3>
+<div class="row-3" id="row-matrix">
+  <div class="panel" data-slot="panel-matrix" data-slot-group="panel-matrix">
+    <h3 id="matrix-h3">Session matrix <span class="hint">cell intensity = relative volume</span></h3>
     <div id="matrix-table"><div class="skeleton" style="height: 160px;"></div></div>
   </div>
-  <div class="panel">
-    <h3>UTM coverage <span class="hint">where the traffic is hiding</span></h3>
+  <div class="panel" data-slot="panel-coverage" data-slot-group="panel-matrix">
+    <h3 id="coverage-h3">UTM coverage <span class="hint">where the traffic is hiding</span></h3>
     <div id="coverage"><div class="skeleton" style="height: 80px;"></div></div>
   </div>
 </div>
 
 <h2>Funnel snapshot</h2>
 <div class="panel">
-  <h3>Sessions → cart → checkout → order <span class="hint">selected period · site behaviour</span></h3>
+  <h3 id="funnel-h3">Sessions → cart → checkout → order <span class="hint">selected period · site behaviour</span></h3>
   <div id="funnel-stages" class="funnel-grid">
-    <div class="kpi"><div class="kpi-label">Sessions</div><div class="kpi-value" id="fnl-0">—</div><div class="kpi-sub">starting volume</div></div>
-    <div class="kpi"><div class="kpi-label">Cart adds</div><div class="kpi-value" id="fnl-1">—</div><div class="kpi-sub" id="fnl-1-sub"></div></div>
-    <div class="kpi"><div class="kpi-label">Reached checkout</div><div class="kpi-value" id="fnl-2">—</div><div class="kpi-sub" id="fnl-2-sub"></div></div>
-    <div class="kpi"><div class="kpi-label">Completed</div><div class="kpi-value" id="fnl-3">—</div><div class="kpi-sub" id="fnl-3-sub"></div></div>
+    <div class="kpi" data-slot="fnl-tile-0" data-slot-group="kpi-fnl"><div class="kpi-label">Sessions</div><div class="kpi-value" id="fnl-0">—</div><div class="kpi-sub">starting volume</div></div>
+    <div class="kpi" data-slot="fnl-tile-1" data-slot-group="kpi-fnl"><div class="kpi-label">Cart adds</div><div class="kpi-value" id="fnl-1">—</div><div class="kpi-sub" id="fnl-1-sub"></div></div>
+    <div class="kpi" data-slot="fnl-tile-2" data-slot-group="kpi-fnl"><div class="kpi-label">Reached checkout</div><div class="kpi-value" id="fnl-2">—</div><div class="kpi-sub" id="fnl-2-sub"></div></div>
+    <div class="kpi" data-slot="fnl-tile-3" data-slot-group="kpi-fnl"><div class="kpi-label">Completed</div><div class="kpi-value" id="fnl-3">—</div><div class="kpi-sub" id="fnl-3-sub"></div></div>
   </div>
 </div>
 
@@ -1454,6 +1534,19 @@ function safeRender(name, fn) {
   }
 }
 
+// Idempotent innerHTML — only writes if the string has actually changed.
+// Eliminates the visible repaint flash on auto-refresh cycles where
+// the rendered HTML matches the previous render (most cycles within 60s).
+const _lastHtmlByElId = Object.create(null);
+function setHtmlIfChanged(elId, html) {
+  const prev = _lastHtmlByElId[elId];
+  if (prev === html) return false;
+  _lastHtmlByElId[elId] = html;
+  const el = document.getElementById(elId);
+  if (el) el.innerHTML = html;
+  return true;
+}
+
 // ================ ATLAS — shared API orchestrator + logger ================
 const ATLAS = {
   api: {
@@ -1567,8 +1660,7 @@ function renderErrorLog() {
 const TOOL_SHOPIFY = 'mcp__3fe49b0d-7782-43b5-9dab-48f84c714743__run-analytics-query';
 const TOOL_IG_REELS = 'mcp__mcp-metricool__get_instagram_reels';
 const TOOL_TT_VIDEOS = 'mcp__mcp-metricool__get_tiktok_videos';
-const TOOL_DRIVE_SEARCH = 'mcp__97501add-7978-4a5c-98e0-7787557e5c18__search_files';
-const TOOL_DRIVE_READ = 'mcp__97501add-7978-4a5c-98e0-7787557e5c18__read_file_content';
+// (Drive search/read tool constants removed alongside GSC; reinstate from git if you re-add.)
 const METRICOOL_BLOG_ID = 6200400;
 const SHOP_TZ = 'Europe/Stockholm';
 
@@ -1579,7 +1671,7 @@ const STATE = {
   paused: false,
   timer: null,
   lastRefreshedAt: null,
-  charts: { volume: null, content: null, donut: null, postBars: null },
+  // (chart instances now live in ChartManager — see below)
   sort: {
     channel:   { col: 'rev',  dir: 'desc' },
     source:    { col: 'rev',  dir: 'desc' },
@@ -1624,6 +1716,321 @@ function cvrClass(cvr) {
 }
 function safeText(s) { return String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
 function nonEmpty(s) { return (s != null && String(s).length > 0); }
+
+// ---- info-icon tooltip helper ----
+// METRIC_DEFS: short definition + math formula. Shown on hover of (i) icon.
+// Keep tips concise — they render in a 260px-max popover.
+const METRIC_DEFS = {
+  'sessions':       'Distinct browsing sessions on the storefront in the selected window.\n\nSource: Shopify (FROM sessions).',
+  'utm_tagged':     'Share of sessions that arrived with a utm_source on the URL.\n\nFormula:  tagged_sessions / total_sessions × 100\n\nUntagged traffic shows up as Direct or referrer-bucketed.',
+  'orders':         'Completed orders in the selected window.\n\nSource: Shopify (FROM sales).',
+  'revenue':        'Gross revenue from completed orders. Excludes refunds.\n\nSource: Shopify (FROM sales — total_sales).',
+  'cvr':            'Conversion rate. Of all sessions, the share that finished checkout.\n\nFormula:  orders / sessions × 100',
+  'reach_total':    'Sum of unique reach (IG) and views (TikTok) across all organic posts in the window.\n\nIG → reach (unique accounts).\nTikTok → views (impressions; unique reach not exposed).',
+  'org_sessions':   'Sessions tagged utm_medium=social_organic. Driven by your organic IG/TikTok/Facebook posts.\n\nSource: Shopify.',
+  'org_orders':     'Orders attributed to social_organic UTM. Same definition as orders, filtered.\n\nSource: Shopify.',
+  'org_revenue':    'Revenue from social_organic orders only.\n\nSource: Shopify.',
+  'reach_to_order': 'End-to-end conversion from a single content view all the way to a paid order.\n\nFormula:  organic_orders / total_reach × 100\n\nA strong creator brand sits at 0.05–0.20%.',
+  'engagement_rate':'Share of viewers who interacted (like, comment, share, save).\n\nFormula:  interactions / reach × 100\n\nMetricool returns this per post; we average across posts.',
+  'avg_eng_combined':'Combined avg engagement rate across IG reels + TikTok videos in the window.\n\nFormula:  Σ(per-post engagement %) / posts',
+  'reach_to_sess':  'How efficiently views convert into store visits.\n\nFormula:  organic_sessions / reach × 100\n\nA tiny number even on huge reach is normal — most viewers never click.',
+  'sess_to_order':  'Once a viewer lands on the site, how often they buy.\n\nFormula:  organic_orders / organic_sessions × 100',
+  'follower_split': 'TikTok-only. Where your views came from:\n• Follow = your followers\' feed\n• For You = the algorithm (non-followers)\n• Hashtag, Sound, Search, Profile = discovery surfaces\n\nFollower-driven views = Follow.\nNon-follower views = everything else.',
+  'follower_pct':   'Share of TikTok views that came from your followers vs everyone else.\n\nFormula:  follow / (follow + forYou + hashtag + sound + profile + search) × 100',
+  'aov':            'Average order value.\n\nFormula:  revenue / orders',
+  'cart_to_co':     'Of sessions that added to cart, the share that reached checkout.',
+  'co_to_complete': 'Of sessions that reached checkout, the share that finished paying.',
+  'matrix_intensity':'Cell darkness scales with session volume relative to the busiest source × medium combination.',
+  'top_campaigns':  'Top 15 by revenue, ordered descending. Source × medium × campaign tuples — your most monetised UTM trios.',
+  'volume_chart':   'Session and order counts over time. Hourly when the range is a single day, daily otherwise.',
+  'organic_chart':  'Sessions and orders filtered to utm_medium=social_organic only. Same shape as the volume chart, just the organic slice.',
+  'matrix':         'Heatmap of sessions by utm_source × utm_medium. Darker = more traffic.',
+  'utm_coverage':   'Where your sessions are hiding from your UTM strategy.\n\nReports the share of sessions with no utm_source, no utm_medium, or neither.',
+  'funnel_drop':    'Sessions → cart adds → reached checkout → completed. Each step shows the drop-off vs the previous one.',
+  'channel_bucketing':'Sessions grouped by channel using Sidekick logic — UTM tags first, then referrer, then fall-back direct. Variants like Story / Reel are kept separate so you can see which surface drove what.',
+  'organic_chart_card':'Daily organic shape — sessions and orders for utm_medium=social_organic only. Same axes as the volume chart.',
+  'views_per_sess': 'How many organic views it takes to produce one click-through to the store.\n\nFormula:  total_reach / organic_sessions\n\nLower is better — fewer eyeballs needed per visit. Healthy DTC sits at 30–80 views/session; 100+ means the hook + CTA need work.'
+};
+function infoIcon(key) {
+  const tip = METRIC_DEFS[key];
+  if (!tip) return '';
+  // escape double quotes for the data-tip attribute
+  const safe = String(tip).replace(/"/g, '&quot;');
+  return '<span class="info-icon" data-tip="' + safe + '" aria-label="info"></span>';
+}
+
+// ============================================================
+// ChartManager — centralized Chart.js lifecycle.
+//
+// Why this exists: Chart.js instances bind to a specific DOM canvas. If the
+// canvas is detached (because some renderer replaced it with an empty-state
+// div, or the user dragged its parent panel), our cached chart instance
+// becomes a ghost — update('none') silently no-ops. We hit this bug twice
+// in the donut and post-bars renderers, with hours of debugging each time.
+//
+// Contract:
+//   ChartManager.render(canvasId, configFn, [updateFn])
+//     - configFn:  () => Chart.js config object (called when creating new)
+//     - updateFn:  (chart) => void  (called for in-place updates; if omitted
+//                                    we fully recreate every render)
+//   ChartManager.destroy(canvasId)
+//     - Explicitly tears down a chart (call before replacing canvas with
+//       an empty-state message).
+//
+// Self-healing: on every render() we check that the cached instance is
+// still bound to the live canvas. Mismatch → destroy + recreate. This
+// makes the API safe under arbitrary DOM rearrangement (drag-and-drop,
+// empty-state swaps, etc.).
+// ============================================================
+const ChartManager = {
+  _charts: {}, // { canvasId: Chart instance }
+
+  render(canvasId, configFn, updateFn) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+      // Canvas missing — drop any cached instance and bail
+      this.destroy(canvasId);
+      return null;
+    }
+    const cached = this._charts[canvasId];
+    // If we have a cached chart but it's bound to a different canvas, kill it.
+    // This is the bug-class fix: stale references don't survive DOM mutations.
+    if (cached && cached.canvas !== canvas) {
+      try { cached.destroy(); } catch (e) {}
+      delete this._charts[canvasId];
+    }
+    if (!this._charts[canvasId]) {
+      const ctx = canvas.getContext('2d');
+      try {
+        this._charts[canvasId] = new Chart(ctx, configFn());
+      } catch (e) {
+        atlasLog('error', 'chart', canvasId + ' create failed: ' + (e && e.message));
+        return null;
+      }
+    } else if (updateFn) {
+      try {
+        updateFn(this._charts[canvasId]);
+        this._charts[canvasId].update('none');
+      } catch (e) {
+        // In-place update failed — try a full recreate
+        atlasLog('warn', 'chart', canvasId + ' in-place update failed, recreating: ' + (e && e.message));
+        try { this._charts[canvasId].destroy(); } catch (ee) {}
+        delete this._charts[canvasId];
+        return this.render(canvasId, configFn, updateFn);
+      }
+    }
+    return this._charts[canvasId];
+  },
+
+  destroy(canvasId) {
+    const c = this._charts[canvasId];
+    if (c) { try { c.destroy(); } catch (e) {} }
+    delete this._charts[canvasId];
+  },
+
+  // Called after layout rearrangement: walk every cached chart, verify its
+  // canvas is still in the live document, drop stale entries.
+  reconcile() {
+    Object.keys(this._charts).forEach(canvasId => {
+      const c = this._charts[canvasId];
+      if (!c.canvas || !document.body.contains(c.canvas)) {
+        try { c.destroy(); } catch (e) {}
+        delete this._charts[canvasId];
+      }
+    });
+  }
+};
+
+// ============================================================
+// LayoutManager — slot-discovery drag-and-drop with persistence.
+//
+// Model: every draggable element on the page declares two data attributes:
+//   data-slot="some-stable-id"
+//   data-slot-group="some-group-id"
+// Slots can only swap with peers in the same group (so a KPI tile can't be
+// dropped onto a panel). The DOM parent of a group's slots is the canonical
+// container — we discover it by walking the first slot's parentElement.
+//
+// Persistence: on every drop we serialize the order of slots within each
+// group to localStorage. On init we read that order and re-apply it via
+// DOM appendChild (which moves rather than copies). After re-applying we
+// rebind handlers and call ChartManager.reconcile() to flush any cached
+// chart instances whose canvases have been detached.
+//
+// What this fixes architecturally: adding a new metric tile previously
+// required edits in three places (HTML element, CSS grid column count,
+// any layout assumption in JS). With this model: one HTML edit (add
+// `<div class="kpi" data-slot="..." data-slot-group="...">`) and the
+// layout system picks it up automatically — including drag support and
+// persistence — on next reload.
+// ============================================================
+const LayoutManager = {
+  STORAGE_KEY: 'cairo_atlas_layout_v1',
+
+  // Drag state
+  _dragSrc: null,
+  _dragGroupId: null,
+
+  init() {
+    this._loadAndApply();
+    this._wireAllSlots();
+  },
+
+  reset() {
+    try { localStorage.removeItem(this.STORAGE_KEY); }
+    catch (e) { atlasLog('warn', 'layout', 'reset failed: ' + (e && e.message)); }
+    // Reload so the original DOM order takes effect
+    location.reload();
+  },
+
+  // ----- internal -----
+
+  _readSaved() {
+    try {
+      const raw = localStorage.getItem(this.STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (e) {
+      atlasLog('warn', 'layout', 'parse failed, ignoring saved layout: ' + (e && e.message));
+      return {};
+    }
+  },
+
+  _save(saved) {
+    try { localStorage.setItem(this.STORAGE_KEY, JSON.stringify(saved)); }
+    catch (e) { atlasLog('warn', 'layout', 'save failed: ' + (e && e.message)); }
+  },
+
+  // Group all slots in the document by group ID + parent element.
+  // Returns: { groupKey: { container: HTMLElement, slots: [HTMLElement] } }
+  // Group key is `groupId@parentSelector` so the same group ID in different
+  // sections still keeps the slots scoped to their actual container.
+  _scanGroups() {
+    const groups = {};
+    document.querySelectorAll('[data-slot][data-slot-group]').forEach(el => {
+      const groupId = el.dataset.slotGroup;
+      const parent = el.parentElement;
+      if (!parent) return;
+      // Use parent ID if it has one, otherwise build a stable selector
+      const parentKey = parent.id || (parent.tagName + ':' + Array.from(parent.parentElement.children).indexOf(parent));
+      const key = groupId + '@' + parentKey;
+      if (!groups[key]) groups[key] = { container: parent, slots: [], groupId, parentKey };
+      groups[key].slots.push(el);
+    });
+    return groups;
+  },
+
+  _loadAndApply() {
+    const saved = this._readSaved();
+    const groups = this._scanGroups();
+    Object.entries(groups).forEach(([key, info]) => {
+      const desiredOrder = saved[key];
+      if (!Array.isArray(desiredOrder)) return;
+      // Build a slot map by ID, then re-append in saved order. Append any
+      // slots that exist in the DOM but aren't in the saved order at the end
+      // (so newly-added metrics still show up after a layout-changing release).
+      const byId = {};
+      info.slots.forEach(s => { byId[s.dataset.slot] = s; });
+      const seen = new Set();
+      desiredOrder.forEach(slotId => {
+        const el = byId[slotId];
+        if (el) { info.container.appendChild(el); seen.add(slotId); }
+      });
+      // Append unseen slots last (preserves their natural DOM order)
+      info.slots.forEach(s => { if (!seen.has(s.dataset.slot)) info.container.appendChild(s); });
+    });
+    // Layout changed — flush stale chart references
+    ChartManager.reconcile();
+  },
+
+  _persistOrder(groupKey, container) {
+    const newOrder = Array.from(container.children)
+      .filter(el => el.dataset && el.dataset.slot)
+      .map(el => el.dataset.slot);
+    const saved = this._readSaved();
+    saved[groupKey] = newOrder;
+    this._save(saved);
+  },
+
+  _wireAllSlots() {
+    const groups = this._scanGroups();
+    Object.entries(groups).forEach(([groupKey, info]) => {
+      info.slots.forEach(slot => this._wireSlot(slot, groupKey, info));
+    });
+  },
+
+  _wireSlot(slotEl, groupKey, groupInfo) {
+    // Inject the drag handle if not already present
+    if (!slotEl.querySelector(':scope > .drag-handle')) {
+      const handle = document.createElement('button');
+      handle.className = 'drag-handle';
+      handle.setAttribute('type', 'button');
+      handle.setAttribute('aria-label', 'Drag to reorder');
+      handle.setAttribute('title', 'Drag to swap');
+      handle.setAttribute('draggable', 'true');
+      slotEl.appendChild(handle);
+    }
+    const handle = slotEl.querySelector(':scope > .drag-handle');
+
+    // dragstart fires on the handle (the [draggable] element); we use the
+    // handle as the only drag source so accidental drags from anywhere else
+    // in the slot don't trigger reorders.
+    handle.addEventListener('dragstart', (e) => {
+      this._dragSrc = slotEl;
+      this._dragGroupId = groupKey;
+      slotEl.classList.add('dragging');
+      document.body.classList.add('is-dragging');
+      // Mark peers
+      groupInfo.slots.forEach(s => { if (s !== slotEl) s.classList.add('drag-peer'); });
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setDragImage(slotEl, 20, 20); } catch (err) {}
+    });
+
+    handle.addEventListener('dragend', () => {
+      slotEl.classList.remove('dragging');
+      document.body.classList.remove('is-dragging');
+      document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      document.querySelectorAll('.drag-peer').forEach(el => el.classList.remove('drag-peer'));
+      this._dragSrc = null;
+      this._dragGroupId = null;
+    });
+
+    // The slot itself is the drop target (not the handle)
+    slotEl.addEventListener('dragover', (e) => {
+      if (!this._dragSrc || this._dragSrc === slotEl) return;
+      if (this._dragGroupId !== groupKey) return; // wrong group — don't accept
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      slotEl.classList.add('drag-over');
+    });
+    slotEl.addEventListener('dragleave', (e) => {
+      // Only clear if we actually left the slot, not just entered a child
+      if (e.target === slotEl) slotEl.classList.remove('drag-over');
+    });
+    slotEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      slotEl.classList.remove('drag-over');
+      if (!this._dragSrc || this._dragSrc === slotEl) return;
+      if (this._dragGroupId !== groupKey) return;
+      const parent = slotEl.parentElement;
+      if (!parent || parent !== this._dragSrc.parentElement) return;
+      // Insert dragged before or after target depending on direction
+      const allSlots = Array.from(parent.querySelectorAll(':scope > [data-slot]'));
+      const srcIdx = allSlots.indexOf(this._dragSrc);
+      const tgtIdx = allSlots.indexOf(slotEl);
+      if (srcIdx < tgtIdx) {
+        parent.insertBefore(this._dragSrc, slotEl.nextSibling);
+      } else {
+        parent.insertBefore(this._dragSrc, slotEl);
+      }
+      this._persistOrder(groupKey, parent);
+      // After a layout change, charts may need to reconcile
+      ChartManager.reconcile();
+      atlasLog('info', 'layout', 'swapped within ' + groupKey);
+    });
+  }
+};
 
 // ---- channel + ordered channel definitions ----
 const CHANNEL_ORDER = [
@@ -2158,10 +2565,55 @@ function buildCache(data) {
   const igSite = sumChannelsBy(l => l && l.indexOf('Instagram organic') === 0);
   const ttSite = sumChannelsBy(l => l && l.indexOf('TikTok organic') === 0);
   const fbSite = sumChannelsBy(l => l && l.indexOf('Facebook organic') === 0);
+  // ===== TikTok audience source breakdown (followers vs FYP / discovery) =====
+  // Each TT video carries impressionSources: { forYou, follow, hashtag, sound, personalProfile, search }.
+  // Values are NULL for very recent posts (≤24-72h) — TikTok's API populates after a lag.
+  // We sum across all videos in the window, track how many videos have data, and treat null as 0.
+  const ttAudKeys = ['follow', 'forYou', 'hashtag', 'sound', 'personalProfile', 'search'];
+  const ttAud = { follow: 0, forYou: 0, hashtag: 0, sound: 0, personalProfile: 0, search: 0 };
+  let ttAudTotal = 0;
+  let ttAudVideosWithData = 0;
+  let ttAudVideosTotal = ttPosts.length;
+  ttPosts.forEach(p => {
+    const src = p.impressionSources || {};
+    let videoHasAny = false;
+    ttAudKeys.forEach(k => {
+      const v = Number(src[k]);
+      if (Number.isFinite(v) && v > 0) {
+        ttAud[k] += v;
+        ttAudTotal += v;
+        videoHasAny = true;
+      }
+    });
+    if (videoHasAny) ttAudVideosWithData++;
+  });
+  const ttFollowerSum = ttAud.follow;
+  const ttNonFollowerSum = ttAudTotal - ttAud.follow;
+  const ttAudience = {
+    breakdown: ttAud,
+    total: ttAudTotal,
+    follower: ttFollowerSum,
+    nonFollower: ttNonFollowerSum,
+    followerPct: ttAudTotal ? (ttFollowerSum / ttAudTotal) * 100 : 0,
+    videosWithData: ttAudVideosWithData,
+    videosTotal: ttAudVideosTotal,
+    // pending = posts in the window for which TikTok hasn't yet returned source-breakdown data
+    pendingVideos: ttAudVideosTotal - ttAudVideosWithData
+  };
+
+  // Combined avg engagement across IG + TT (simple post-weighted average)
+  const allEngVals = [
+    ...igPosts.map(p => Number(p.engagement) || 0),
+    ...ttPosts.map(p => Number(p.engagement) || 0)
+  ].filter(v => v > 0);
+  const combinedAvgEng = allEngVals.length ? allEngVals.reduce((a, b) => a + b, 0) / allEngVals.length : 0;
+
   STATE.cache.contentFunnel = {
     ig: { ...igMeta, sessions: igSite.sess, orders: igSite.orders, revenue: igSite.rev },
     tt: { ...ttMeta, sessions: ttSite.sess, orders: ttSite.orders, revenue: ttSite.rev },
     fb: { posts: 0, reach: 0, avgEng: 0, likes: 0, sessions: fbSite.sess, orders: fbSite.orders, revenue: fbSite.rev },
+    ttAudience,
+    combinedAvgEng,
     total: {
       posts: igMeta.posts + ttMeta.posts,
       reach: igMeta.reach + ttMeta.reach,
@@ -2297,6 +2749,14 @@ function renderKpis() {
   const taggedPct = k.sessions ? (k.taggedSess / k.sessions) * 100 : 0;
   const aov = k.orders > 0 ? k.revenue / k.orders : 0;
 
+  // Inject info icons into KPI labels (idempotent on each render)
+  const setLbl = (id, text, key) => { const el = document.getElementById(id); if (el) el.innerHTML = text + infoIcon(key); };
+  setLbl('kpi-sessions-lbl', 'Sessions',    'sessions');
+  setLbl('kpi-tagged-lbl',   'UTM-tagged',  'utm_tagged');
+  setLbl('kpi-orders-lbl',   'Orders',      'orders');
+  setLbl('kpi-revenue-lbl',  'Revenue',     'revenue');
+  setLbl('kpi-cvr-lbl',      'Conv. rate',  'cvr');
+
   document.getElementById('kpi-sessions').textContent = fmtInt(k.sessions);
   document.getElementById('kpi-sessions-sub').innerHTML = renderDelta(k.sessions, p.sessions) + ' · ' + fmtInt(k.taggedSess) + ' tagged · ' + fmtInt(k.sessions - k.taggedSess) + ' untagged';
 
@@ -2363,11 +2823,7 @@ function renderChannelTable() {
       <td>${fmtPctRaw(totalCvr, 2)}</td>
     </tr>`;
 
-  document.getElementById('channel-table').innerHTML = `
-    <table class="tbl">
-      <thead>${headHtml}</thead>
-      <tbody>${bodyHtml}${totalHtml}</tbody>
-    </table>`;
+  setHtmlIfChanged('channel-table', `<table class="tbl"><thead>${headHtml}</thead><tbody>${bodyHtml}${totalHtml}</tbody></table>`);
 }
 
 function renderSourceTable() {
@@ -2405,7 +2861,7 @@ function renderSourceTable() {
   }).join('');
 
   const total = `<tr class="totalrow"><td>TOTAL</td><td>${fmtInt(totSess)}</td><td>${fmtInt(totOrd)}</td><td>${fmtMoney(totRev)}</td><td>${fmtPctRaw(totCvr, 2)}</td></tr>`;
-  document.getElementById('source-table').innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${body}${total}</tbody></table>`;
+  setHtmlIfChanged('source-table', `<table class="tbl"><thead>${head}</thead><tbody>${body}${total}</tbody></table>`);
 }
 
 function renderMediumTable() {
@@ -2443,7 +2899,7 @@ function renderMediumTable() {
   }).join('');
 
   const total = `<tr class="totalrow"><td>TOTAL</td><td>${fmtInt(totSess)}</td><td>${fmtInt(totOrd)}</td><td>${fmtMoney(totRev)}</td><td>${fmtPctRaw(totCvr, 2)}</td></tr>`;
-  document.getElementById('medium-table').innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${body}${total}</tbody></table>`;
+  setHtmlIfChanged('medium-table', `<table class="tbl"><thead>${head}</thead><tbody>${body}${total}</tbody></table>`);
 }
 
 function renderCampaignsTable() {
@@ -2482,7 +2938,7 @@ function renderCampaignsTable() {
       <td><span class="cvr-pill ${cvrClass(r.cvr)}">${r.cvr ? fmtPctRaw(r.cvr, 2) : '0%'}</span></td>
     </tr>`;
   }).join('');
-  document.getElementById('campaigns-table').innerHTML = `<table class="tbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  setHtmlIfChanged('campaigns-table', `<table class="tbl"><thead>${head}</thead><tbody>${body}</tbody></table>`);
 }
 
 function renderMatrix() {
@@ -2515,7 +2971,7 @@ function renderMatrix() {
         `).join('')}
       </tbody>
     </table>`;
-  document.getElementById('matrix-table').innerHTML = html;
+  setHtmlIfChanged('matrix-table', html);
 }
 
 function renderCoverage() {
@@ -2533,22 +2989,58 @@ function renderCoverage() {
   }).join('');
   const taggedPct = (c.taggedSum / total) * 100;
   const taggedClass = taggedPct >= 70 ? 'organic' : taggedPct >= 40 ? 'paid' : 'muted';
-  document.getElementById('coverage').innerHTML = `
-    <div style="display:flex; align-items:center; justify-content: space-between; margin-bottom:10px;">
-      <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); font-variant-numeric: tabular-nums;">${taggedPct.toFixed(1)}%</div>
-      <span class="tag ${taggedClass}">${taggedPct >= 70 ? 'good' : taggedPct >= 40 ? 'mid' : 'low'} coverage</span>
-    </div>
-    <div class="coverage-bar">${segsHtml}</div>
-    <div class="coverage-legend">${legendHtml}</div>`;
+  setHtmlIfChanged('coverage', `<div style="display:flex; align-items:center; justify-content: space-between; margin-bottom:10px;"><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); font-variant-numeric: tabular-nums;">${taggedPct.toFixed(1)}%</div><span class="tag ${taggedClass}">${taggedPct >= 70 ? 'good' : taggedPct >= 40 ? 'mid' : 'low'} coverage</span></div><div class="coverage-bar">${segsHtml}</div><div class="coverage-legend">${legendHtml}</div>`);
 }
 
 function renderContentFunnel() {
   const cf = STATE.cache.contentFunnel;
   if (!cf) return;
   const p = STATE.cache.prev || {};
+  // Inject info icons next to KPI labels (idempotent — sets innerHTML to a fresh value)
+  const setLbl = (id, text, key) => { const el = document.getElementById(id); if (el) el.innerHTML = text + infoIcon(key); };
+  setLbl('kpi-cf-reach-lbl',    'Total reach/views', 'reach_total');
+  setLbl('kpi-cf-eng-lbl',      'Avg engagement',    'avg_eng_combined');
+  setLbl('kpi-cf-sessions-lbl', 'Organic sessions',  'org_sessions');
+  setLbl('kpi-cf-orders-lbl',   'Organic orders',    'org_orders');
+  setLbl('kpi-cf-revenue-lbl',  'Organic revenue',   'org_revenue');
+  setLbl('kpi-cf-rate-lbl',     'Reach → Order',     'reach_to_order');
+
+  // Lag banner — shown when Metricool fell back to yesterday because today's data hasn't aggregated yet
+  const banner = document.getElementById('cf-lag-banner');
+  const bannerTxt = document.getElementById('cf-lag-banner-text');
+  if (banner && bannerTxt) {
+    if (cf.metricoolRange && cf.metricoolRange.fallback) {
+      bannerTxt.textContent = "Reach / views / engagement are from yesterday — Metricool's API has a ~24h lag. Today's numbers land tomorrow. Site numbers (sessions, orders, revenue) are today's.";
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
   // KPIs
   document.getElementById('cf-reach').textContent = fmtInt(cf.total.reach);
-  document.getElementById('cf-reach-sub').innerHTML = renderDelta(cf.total.reach, p.reach) + ' · ' + fmtInt(cf.total.posts) + ' posts';
+  // Views per session — efficiency: how many organic views it takes to produce one click-through.
+  // We render this inline in the sub-line. Native title= attr is used instead of an info-icon
+  // because the kpi-sub has overflow:hidden for line-clamping, which would clip the popover tooltip.
+  const viewsPerSess = cf.total.sessions > 0 ? (cf.total.reach / cf.total.sessions) : 0;
+  const viewsTip = METRIC_DEFS['views_per_sess'].replace(/"/g, '&quot;');
+  const efficiencyTxt = viewsPerSess > 0
+    ? ' · <strong style="color: var(--text); border-bottom: 1px dotted var(--muted-2); cursor: help;" title="' + viewsTip + '">' + fmtInt(viewsPerSess) + '</strong> views / session'
+    : '';
+  document.getElementById('cf-reach-sub').innerHTML = renderDelta(cf.total.reach, p.reach) + ' · ' + fmtInt(cf.total.posts) + ' posts' + efficiencyTxt;
+
+  // Combined engagement KPI
+  const engEl = document.getElementById('cf-eng');
+  if (engEl) {
+    engEl.textContent = cf.combinedAvgEng > 0 ? fmtPctRaw(cf.combinedAvgEng, 2) : '—';
+  }
+  const engSub = document.getElementById('cf-eng-sub');
+  if (engSub) {
+    const igPart = cf.ig.posts ? 'IG ' + fmtPctRaw(cf.ig.avgEng, 2) : '';
+    const ttPart = cf.tt.posts ? 'TT ' + fmtPctRaw(cf.tt.avgEng, 2) : '';
+    engSub.textContent = [igPart, ttPart].filter(Boolean).join(' · ') || 'no posts in window';
+  }
+
   document.getElementById('cf-sessions').textContent = fmtInt(cf.total.sessions);
   document.getElementById('cf-sessions-sub').innerHTML = renderDelta(cf.total.sessions, p.orgSessions) + ' · social_organic';
   document.getElementById('cf-orders').textContent = fmtInt(cf.total.orders);
@@ -2579,7 +3071,15 @@ function renderContentFunnel() {
       reachToOrder: s.reach ? (s.orders / s.reach) * 100 : 0
     });
     const head = `<tr>
-      <th>Platform</th><th>Posts</th><th>Reach / Views</th><th>Avg eng</th><th>Sessions</th><th>Orders</th><th>Revenue</th><th>Reach→Sess</th><th>Sess→Order</th>
+      <th>Platform</th>
+      <th>Posts</th>
+      <th>Reach / Views ${infoIcon('reach_total')}</th>
+      <th>Avg eng ${infoIcon('engagement_rate')}</th>
+      <th>Sessions ${infoIcon('org_sessions')}</th>
+      <th>Orders ${infoIcon('org_orders')}</th>
+      <th>Revenue ${infoIcon('org_revenue')}</th>
+      <th>Reach→Sess ${infoIcon('reach_to_sess')}</th>
+      <th>Sess→Order ${infoIcon('sess_to_order')}</th>
     </tr>`;
     const platColor = { ig: 'var(--p-ig)', tt: 'var(--p-tt)', fb: 'var(--p-fb)' };
     const body = rows.map(r => {
@@ -2609,10 +3109,8 @@ function renderContentFunnel() {
       <td>${totalRates.reachToSess > 0 ? fmtPctRaw(totalRates.reachToSess, 3) : '—'}</td>
       <td>${fmtPctRaw(totalRates.sessToOrder, 2)}</td>
     </tr>`;
-    const note = (cf.metricoolRange && cf.metricoolRange.fallback)
-      ? '<div class="posts-note" style="margin-bottom:10px;"><span style="color: var(--warn);">●</span> Reach/views from yesterday (Metricool 24h lag). Site numbers are today\'s.</div>'
-      : '';
-    document.getElementById('cf-table').innerHTML = note + `<table class="tbl"><thead>${head}</thead><tbody>${body}${totalRow}</tbody></table>`;
+    // Lag note moved to the section-level banner above the KPI grid — no redundant inline copy.
+    setHtmlIfChanged('cf-table', `<table class="tbl"><thead>${head}</thead><tbody>${body}${totalRow}</tbody></table>`);
   }
 
   // Total breakdown — reach donut
@@ -2621,29 +3119,124 @@ function renderContentFunnel() {
   renderPostBars();
   // Daily timeseries chart
   renderContentChart();
+  // TikTok follower vs FYP / discovery breakdown
+  renderTtAudience();
+}
+
+function renderTtAudience() {
+  const cf = STATE.cache.contentFunnel;
+  if (!cf) return;
+  const a = cf.ttAudience;
+  const wrap = document.getElementById('tt-audience-table');
+  if (!wrap) return;
+
+  // No TikTok posts at all in the window
+  if (!a || a.videosTotal === 0) {
+    wrap.innerHTML = '<div class="empty">No TikTok videos in this window.</div>';
+    return;
+  }
+
+  // Posts exist but none have impressionSources data yet (typical for ≤24-72h-old posts)
+  if (a.total === 0) {
+    const html = `
+      <div class="empty" style="text-align:left; line-height:1.6;">
+        <strong style="color: var(--text);">Source breakdown still aggregating.</strong><br>
+        TikTok's <code style="color:var(--accent);">impressionSources</code> field returns <code style="color:var(--accent);">null</code> for fresh posts and populates within roughly 1–3 days.<br>
+        ${a.videosTotal} ${a.videosTotal === 1 ? 'video' : 'videos'} in this window — none have source data yet. Check back tomorrow, or widen the date range.
+      </div>`;
+    wrap.innerHTML = html;
+    return;
+  }
+
+  // We have at least some data — render the breakdown table
+  const labels = {
+    follow:          { lbl: 'Follow (your followers)',  follower: true,  color: 'var(--p-tt)' },
+    forYou:          { lbl: 'For You (algorithm)',      follower: false, color: '#3b82f6' },
+    hashtag:         { lbl: 'Hashtag',                  follower: false, color: '#8b5cf6' },
+    sound:           { lbl: 'Sound',                    follower: false, color: '#10b981' },
+    personalProfile: { lbl: 'Profile visits',           follower: false, color: '#f59e0b' },
+    search:          { lbl: 'Search',                   follower: false, color: '#ef4444' }
+  };
+  const order = ['follow', 'forYou', 'hashtag', 'sound', 'personalProfile', 'search'];
+  const total = a.total;
+  const rows = order.map(k => {
+    const v = a.breakdown[k] || 0;
+    const pct = total ? (v / total) * 100 : 0;
+    const meta = labels[k];
+    return `<tr>
+      <td><span class="swatch" style="background:${meta.color}"></span>${meta.lbl}</td>
+      <td>${meta.follower ? '<span class="tag" style="background: rgba(255,0,80,0.12); color: var(--p-tt); border:1px solid rgba(255,0,80,0.25);">Follower</span>' : '<span class="tag muted">Discovery</span>'}</td>
+      <td>${fmtInt(v)}</td>
+      <td>${fmtPctRaw(pct, 1)}</td>
+    </tr>`;
+  }).join('');
+
+  // Aggregate row: follower vs non-follower split
+  const summary = `
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px;">
+      <div class="kpi" style="background: rgba(255,0,80,0.06); border-color: rgba(255,0,80,0.20);">
+        <div class="kpi-label">From followers ${infoIcon('follower_pct')}</div>
+        <div class="kpi-value" style="color: var(--p-tt);">${fmtInt(a.follower)}</div>
+        <div class="kpi-sub">${fmtPctRaw(a.followerPct, 1)} of attributed views</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">From non-followers</div>
+        <div class="kpi-value">${fmtInt(a.nonFollower)}</div>
+        <div class="kpi-sub">${fmtPctRaw(100 - a.followerPct, 1)} · FYP + discovery</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Coverage ${infoIcon('follower_split')}</div>
+        <div class="kpi-value">${a.videosWithData}<span style="color: var(--muted-2); font-size: 16px;"> / ${a.videosTotal}</span></div>
+        <div class="kpi-sub">${a.pendingVideos > 0 ? '<span style="color: var(--warn);">●</span> ' + a.pendingVideos + ' still aggregating' : 'all videos reporting'}</div>
+      </div>
+    </div>`;
+
+  const note = a.pendingVideos > 0
+    ? '<div class="posts-note" style="margin: 0 0 8px 0;"><span style="color: var(--warn);">●</span> ' + a.pendingVideos + ' of ' + a.videosTotal + ' videos in this window haven\'t reported impressionSources yet (TikTok API populates after ~1-3 days). Numbers below exclude them.</div>'
+    : '';
+
+  const head = `<tr>
+    <th>Source</th>
+    <th>Bucket</th>
+    <th>Views</th>
+    <th>% of attributed</th>
+  </tr>`;
+
+  wrap.innerHTML = summary + note + `<table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderReachDonut() {
   const cf = STATE.cache.contentFunnel;
-  if (!cf) return;
   const wrap = document.getElementById('reach-donut-wrap');
-  const segments = [
+  if (!wrap) return;
+  // Shared empty-state markup. Evergreen copy (no specific dates) so it stays accurate week to week as platforms come online.
+  const emptyHtml = '<div class="empty" style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px;"><div style="font-weight:600;color:#ebe4d3;font-size:13px;">Reach data still building</div><div>Each connected platform needs a few days of logged impressions before the split is meaningful. Metricool\'s API also lags ~24h behind real activity, so today\'s posts won\'t show until tomorrow. Expect this donut to fill once TikTok and Instagram have a few thousand impressions each.</div></div>';
+
+  const segments = cf ? [
     { label: 'Instagram', value: cf.ig.reach, color: '#e1306c' },
     { label: 'TikTok',    value: cf.tt.reach, color: '#ff0050' },
     { label: 'Facebook',  value: cf.fb.reach || 0, color: '#1877f2' }
-  ].filter(d => d.value > 0);
-  if (segments.length === 0) {
-    wrap.innerHTML = '<div class="empty">No reach data yet — Metricool API has nothing for this window.</div>';
+  ].filter(d => d.value > 0) : [];
+
+  if (!cf || segments.length === 0) {
+    // Tear down chart, swap canvas for empty message. ChartManager handles the cache invalidation cleanly.
+    ChartManager.destroy('reach-donut');
+    wrap.innerHTML = emptyHtml;
     return;
   }
-  // Reset wrap to canvas if it was replaced
+
+  // Ensure the canvas exists (re-creates it if a previous empty-state replaced the wrap contents)
   if (!document.getElementById('reach-donut')) {
     wrap.innerHTML = '<canvas id="reach-donut"></canvas>';
   }
-  const ctx = document.getElementById('reach-donut').getContext('2d');
-  if (STATE.charts.donut) { STATE.charts.donut.destroy(); STATE.charts.donut = null; }
+
   const total = segments.reduce((a, b) => a + b.value, 0);
-  STATE.charts.donut = new Chart(ctx, {
+  const donutTooltipLabel = (c) => {
+    const pct = total ? (c.parsed / total) * 100 : 0;
+    return ' ' + fmtInt(c.parsed) + '  ·  ' + pct.toFixed(1) + '%';
+  };
+
+  ChartManager.render('reach-donut', () => ({
     type: 'doughnut',
     data: {
       labels: segments.map(s => s.label),
@@ -2656,38 +3249,27 @@ function renderReachDonut() {
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '64%',
+      responsive: true, maintainAspectRatio: false, cutout: '64%',
       plugins: {
-        legend: {
-          position: 'right',
-          labels: { color: '#ebe4d3', font: { size: 11 }, padding: 12, usePointStyle: true, pointStyle: 'circle', boxWidth: 8 }
-        },
-        tooltip: {
-          backgroundColor: '#16130f',
-          borderColor: '#3a352d',
-          borderWidth: 1,
-          titleColor: '#c9a45a',
-          bodyColor: '#ebe4d3',
-          padding: 10,
-          callbacks: {
-            label: function(c) {
-              const pct = total ? (c.parsed / total) * 100 : 0;
-              return ' ' + fmtInt(c.parsed) + '  ·  ' + pct.toFixed(1) + '%';
-            }
-          }
-        }
+        legend: { position: 'right', labels: { color: '#ebe4d3', font: { size: 11 }, padding: 12, usePointStyle: true, pointStyle: 'circle', boxWidth: 8 } },
+        tooltip: { backgroundColor: '#16130f', borderColor: '#3a352d', borderWidth: 1, titleColor: '#c9a45a', bodyColor: '#ebe4d3', padding: 10, callbacks: { label: donutTooltipLabel } }
       }
     }
+  }), (chart) => {
+    chart.data.labels = segments.map(s => s.label);
+    chart.data.datasets[0].data = segments.map(s => s.value);
+    chart.data.datasets[0].backgroundColor = segments.map(s => s.color);
+    chart.options.plugins.tooltip.callbacks.label = donutTooltipLabel;
   });
 }
 
 function renderPostBars() {
   const wrap = document.getElementById('post-bars-wrap');
+  if (!wrap) return;
   const posts = STATE.cache.posts || [];
   if (posts.length === 0) {
-    wrap.innerHTML = '<div class="empty">No posts in window. Metricool API lags ~24h.</div>';
+    ChartManager.destroy('post-bars');
+    wrap.innerHTML = '<div class="empty" style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px;"><div style="font-weight:600;color:#ebe4d3;font-size:13px;">Not enough posts to rank yet</div><div>A meaningful split-test needs roughly 5–10 posts in the current window before a ranking surfaces signal. Once enough posts have shipped and Metricool has logged their engagement (~24h after publish), the strongest performers appear here, sorted by engagement rate.</div></div>';
     return;
   }
   if (!document.getElementById('post-bars')) {
@@ -2703,63 +3285,42 @@ function renderPostBars() {
   const data = top.map(p => Number(p.stat2.val) || 0);
   const colors = top.map(p => p.net === 'IG' ? '#e1306c' : '#ff0050');
 
-  const ctx = document.getElementById('post-bars').getContext('2d');
-  if (STATE.charts.postBars) { STATE.charts.postBars.destroy(); STATE.charts.postBars = null; }
-  STATE.charts.postBars = new Chart(ctx, {
+  const tooltipTitle = (items) => {
+    const i = items[0].dataIndex;
+    return top[i].net + ' · ' + (top[i].timeIso ? new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(top[i].timeIso)) : '');
+  };
+  const tooltipLabelPosts = (c) => {
+    const p = top[c.dataIndex];
+    const lines = [
+      ' Engagement: ' + fmtPctRaw(p.stat2.val, 2),
+      ' ' + p.stat1.lbl + ': ' + fmtInt(p.stat1.val),
+      ' Likes: ' + fmtInt(p.stat3.val)
+    ];
+    const cap = (p.content || '').replace(/\s+/g, ' ').trim();
+    if (cap) lines.push('', '"' + cap.slice(0, 90) + (cap.length > 90 ? '…' : '') + '"');
+    return lines;
+  };
+
+  ChartManager.render('post-bars', () => ({
     type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Engagement %',
-        data,
-        backgroundColor: colors,
-        borderRadius: 2,
-        maxBarThickness: 16
-      }]
-    },
+    data: { labels, datasets: [{ label: 'Engagement %', data, backgroundColor: colors, borderRadius: 2, maxBarThickness: 16 }] },
     options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        tooltip: {
-          backgroundColor: '#16130f',
-          borderColor: '#3a352d',
-          borderWidth: 1,
-          titleColor: '#c9a45a',
-          bodyColor: '#ebe4d3',
-          padding: 10,
-          callbacks: {
-            title: function(items) {
-              const i = items[0].dataIndex;
-              return top[i].net + ' · ' + (top[i].timeIso ? new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(top[i].timeIso)) : '');
-            },
-            label: function(c) {
-              const p = top[c.dataIndex];
-              const lines = [
-                ' Engagement: ' + fmtPctRaw(p.stat2.val, 2),
-                ' ' + p.stat1.lbl + ': ' + fmtInt(p.stat1.val),
-                ' Likes: ' + fmtInt(p.stat3.val)
-              ];
-              const cap = (p.content || '').replace(/\s+/g, ' ').trim();
-              if (cap) lines.push('', '"' + cap.slice(0, 90) + (cap.length > 90 ? '…' : '') + '"');
-              return lines;
-            }
-          }
-        }
+        tooltip: { backgroundColor: '#16130f', borderColor: '#3a352d', borderWidth: 1, titleColor: '#c9a45a', bodyColor: '#ebe4d3', padding: 10, callbacks: { title: tooltipTitle, label: tooltipLabelPosts } }
       },
       scales: {
-        x: {
-          ticks: { font: { size: 10 }, color: '#897c69', callback: function(v) { return v + '%'; } },
-          grid: { color: 'rgba(58, 53, 45, 0.35)', drawBorder: false }
-        },
-        y: {
-          ticks: { font: { size: 10 }, color: '#897c69' },
-          grid: { display: false }
-        }
+        x: { ticks: { font: { size: 10 }, color: '#897c69', callback: (v) => v + '%' }, grid: { color: 'rgba(58, 53, 45, 0.35)', drawBorder: false } },
+        y: { ticks: { font: { size: 10 }, color: '#897c69' }, grid: { display: false } }
       }
     }
+  }), (chart) => {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = data;
+    chart.data.datasets[0].backgroundColor = colors;
+    chart.options.plugins.tooltip.callbacks.title = tooltipTitle;
+    chart.options.plugins.tooltip.callbacks.label = tooltipLabelPosts;
   });
 }
 
@@ -2783,484 +3344,53 @@ function renderContentChart() {
     return cd.reachByDay[day] || 0;
   });
 
-  document.getElementById('cf-chart-hint').textContent = (isHour ? 'hourly · ' : 'daily · ') + r.label;
-
-  const ctx = document.getElementById('content-chart').getContext('2d');
-  if (STATE.charts.content) { STATE.charts.content.destroy(); STATE.charts.content = null; }
+  const hint = document.getElementById('cf-chart-hint');
+  if (hint) hint.textContent = (isHour ? 'hourly · ' : 'daily · ') + r.label;
 
   const orderPointData = sessSeries.map((s, i) => orderSeries[i] > 0 ? s : null);
+  const orderPointRadius = (c) => { const o = orderSeries[c.dataIndex]; return o ? 5 + Math.min(10, o * 1.8) : 0; };
+  const orderPointHover  = (c) => { const o = orderSeries[c.dataIndex]; return o ? 7 + Math.min(12, o * 1.8) : 0; };
+  const tooltipLabelContent = (c) => {
+    const i = c.dataIndex;
+    const lines = [' Reach/views: ' + fmtInt(reachSeries[i])];
+    lines.push(' Sessions: ' + fmtInt(sessSeries[i]));
+    if (orderSeries[i] > 0) lines.push(' Orders: ' + fmtInt(orderSeries[i]));
+    if (revSeries[i] > 0) lines.push(' Revenue: ' + fmtMoney(revSeries[i]));
+    return lines;
+  };
 
-  STATE.charts.content = new Chart(ctx, {
+  ChartManager.render('content-chart', () => ({
     type: 'line',
     data: {
       labels,
       datasets: [
-        {
-          label: 'Sessions',
-          data: sessSeries,
-          borderColor: '#c9a45a',
-          backgroundColor: 'transparent',
-          tension: 0,
-          fill: false,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          pointBackgroundColor: '#c9a45a',
-          pointBorderColor: '#16130f',
-          pointBorderWidth: 2,
-          borderWidth: 1.6,
-          order: 2
-        },
-        {
-          label: 'Orders',
-          data: orderPointData,
-          borderColor: 'transparent',
-          backgroundColor: '#22c55e',
-          showLine: false,
-          pointRadius: function(c) { const o = orderSeries[c.dataIndex]; return o ? 5 + Math.min(10, o * 1.8) : 0; },
-          pointHoverRadius: function(c) { const o = orderSeries[c.dataIndex]; return o ? 7 + Math.min(12, o * 1.8) : 0; },
-          pointBackgroundColor: '#22c55e',
-          pointBorderColor: '#16130f',
-          pointBorderWidth: 2,
-          spanGaps: false,
-          order: 1
-        }
+        { label: 'Sessions', data: sessSeries, borderColor: '#c9a45a', backgroundColor: 'transparent', tension: 0, fill: false, pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: '#c9a45a', pointBorderColor: '#16130f', pointBorderWidth: 2, borderWidth: 1.6, order: 2 },
+        { label: 'Orders', data: orderPointData, borderColor: 'transparent', backgroundColor: '#22c55e', showLine: false, pointRadius: orderPointRadius, pointHoverRadius: orderPointHover, pointBackgroundColor: '#22c55e', pointBorderColor: '#16130f', pointBorderWidth: 2, spanGaps: false, order: 1 }
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          backgroundColor: '#16130f',
-          borderColor: '#3a352d',
-          borderWidth: 1,
-          titleColor: '#c9a45a',
-          bodyColor: '#ebe4d3',
-          padding: 10,
-          displayColors: false,
-          filter: function(item) { return item.datasetIndex === 0; },
-          callbacks: {
-            label: function(c) {
-              const i = c.dataIndex;
-              const lines = [' Reach/views: ' + fmtInt(reachSeries[i])];
-              lines.push(' Sessions: ' + fmtInt(sessSeries[i]));
-              if (orderSeries[i] > 0) lines.push(' Orders: ' + fmtInt(orderSeries[i]));
-              if (revSeries[i] > 0) lines.push(' Revenue: ' + fmtMoney(revSeries[i]));
-              return lines;
-            }
-          }
-        }
+        tooltip: { backgroundColor: '#16130f', borderColor: '#3a352d', borderWidth: 1, titleColor: '#c9a45a', bodyColor: '#ebe4d3', padding: 10, displayColors: false, filter: (item) => item.datasetIndex === 0, callbacks: { label: tooltipLabelContent } }
       },
       scales: {
         x: { ticks: { font: { size: 10 }, color: '#897c69', autoSkip: true, maxRotation: 0 }, grid: { display: false } },
         y: { beginAtZero: true, ticks: { font: { size: 10 }, color: '#897c69', precision: 0 }, grid: { color: 'rgba(58, 53, 45, 0.35)', drawBorder: false } }
       }
     }
+  }), (chart) => {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = sessSeries;
+    chart.data.datasets[1].data = orderPointData;
+    chart.data.datasets[1].pointRadius      = orderPointRadius;
+    chart.data.datasets[1].pointHoverRadius = orderPointHover;
+    chart.options.plugins.tooltip.callbacks.label = tooltipLabelContent;
   });
 }
 
-// ================ Creative Analysis (Motion API) ================
-const CA_TOOL_PREFIX = 'mcp__1cc7fc04-f423-4cb4-a494-9b495284d39b__';
-const CA_ORG_ID = '69f9e0568c39c0be720e3759';
-const CA_WORKSPACE_ID = '69f9e1c5b9a2af5ee725fb72';
+// (Creative Analysis / Motion integration rolled back — see git history for the implementation if you want to reinstate it.)
 
-const CA = {
-  loaded: false,
-  loading: false,
-  pollAttempt: 0,
-  pollMax: 6,
-  pollPct: 0,
-  error: null,
-  goalMetric: 'roas',
-  spendThreshold: 50,
-  insights: [],
-  picks: { best: null, underrated: null, worst: null },
-  currentSlide: 0
-};
-
-async function caCallMotion(toolName, args, timeoutMs) {
-  return await atlasApiCall(CA_TOOL_PREFIX + toolName, args || {}, {
-    timeout: timeoutMs || 18000,
-    label: 'motion.' + toolName
-  });
-}
-
-// Targeted update — refresh polling progress text without rebuilding the whole loading UI
-// (fixes the flicker that came from caRender() in the polling loop wiping innerHTML each cycle).
-function caUpdateLoadingProgress() {
-  const prog = document.getElementById('ca-loading-progress');
-  if (prog) {
-    prog.textContent = 'poll attempt ' + (CA.pollAttempt || 0) + '/' + (CA.pollMax || 6)
-      + (CA.pollPct ? ' · Motion ' + CA.pollPct + '%' : '');
-  }
-  const err = document.getElementById('ca-loading-error');
-  if (err) {
-    if (CA.lastError) { err.style.display = 'block'; err.textContent = 'retrying after: ' + CA.lastError; }
-    else { err.style.display = 'none'; }
-  }
-  const hint = document.getElementById('ca-hint');
-  if (hint) hint.textContent = 'polling Motion · attempt ' + (CA.pollAttempt || 0) + '/' + (CA.pollMax || 6)
-    + (CA.pollPct ? ' · ' + CA.pollPct + '% computed' : '');
-}
-
-function caGetMetric(row, key) {
-  if (!row) return 0;
-  const fromGroup = (g) => row?.[g]?.[key]?.value ?? row?.[g]?.[key];
-  const v = row?.[key]?.value ?? row?.[key]
-    ?? fromGroup('defaultKpiMetrics')
-    ?? fromGroup('performance')
-    ?? fromGroup('motion')
-    ?? fromGroup('click')
-    ?? fromGroup('conversion')
-    ?? fromGroup('media');
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
-
-function caPickThree(insights) {
-  const valid = insights.filter(r => r && r.creativeEntityId);
-  if (valid.length === 0) return { best: null, underrated: null, worst: null };
-
-  const threshold = CA.spendThreshold || 50;
-  const significant = valid.filter(r => caGetMetric(r, 'spend') >= threshold);
-
-  // Best — highest ROAS in significant
-  const best = [...significant].sort((a, b) => caGetMetric(b, 'roas') - caGetMetric(a, 'roas'))[0] || valid[0];
-
-  // Worst — lowest ROAS in significant (excluding best)
-  const worst = [...significant].filter(r => r !== best)
-    .sort((a, b) => caGetMetric(a, 'roas') - caGetMetric(b, 'roas'))[0] || null;
-
-  // Underrated — high ROAS × CTR × hook, but spend < threshold × 2 (not yet scaled)
-  const score = (r) => {
-    const roas = caGetMetric(r, 'roas');
-    const ctr  = caGetMetric(r, 'ctr_all') || caGetMetric(r, 'ctr');
-    const hook = caGetMetric(r, 'thumbstop_ratio') || caGetMetric(r, 'hook_rate');
-    return (roas || 0) * ((ctr || 0) * 100) * ((hook || 0) * 100);
-  };
-  const underratedCandidates = valid.filter(r =>
-    r !== best && r !== worst &&
-    caGetMetric(r, 'spend') < threshold * 2 &&
-    caGetMetric(r, 'roas') > 0
-  );
-  underratedCandidates.sort((a, b) => score(b) - score(a));
-  const underrated = underratedCandidates[0] || null;
-
-  return { best, underrated, worst };
-}
-
-async function caFetchInsightsWithPolling() {
-  CA.pollMax = 6;
-  for (let i = 0; i < CA.pollMax; i++) {
-    CA.pollAttempt = i + 1;
-    caUpdateLoadingProgress(); // text-only update — no innerHTML rebuild, no flicker
-    const args = {
-      organizationId: CA_ORG_ID,
-      workspaceId: CA_WORKSPACE_ID,
-      insightType: 'ROAS',
-      datePreset: 'LAST_30_DAYS',
-      limit: 25,
-      includeCreativeUrls: true,
-      insightGroups: ['defaultKpiMetrics', 'performance', 'media']
-    };
-    let res;
-    try {
-      res = await caCallMotion('get_creative_insights', args, 18000);
-    } catch (e) {
-      console.warn('Motion insights call failed (will retry)', e);
-      CA.lastError = e?.message || String(e);
-      await new Promise(r => setTimeout(r, 1800));
-      continue;
-    }
-    // Defensive: try multiple wrapping/path levels Motion's response might use
-    const layers = [res, res?.data, res?.data?.data].filter(Boolean);
-    let pct = null, rows = null, threshold = null, goalMetric = null;
-    for (const L of layers) {
-      const ir = L?.insightsResult || L;
-      if (ir?.reportPercentCompletion != null) pct = ir.reportPercentCompletion;
-      const candidate = ir?.data?.insights || ir?.insights || L?.insights;
-      if (Array.isArray(candidate) && candidate.length > 0) { rows = candidate; }
-      if (L?.spendThreshold != null) threshold = Number(L.spendThreshold);
-      if (L?.goalMetric?.field) goalMetric = L.goalMetric.field;
-    }
-    if (pct != null) CA.pollPct = pct;
-    if (threshold != null) CA.spendThreshold = threshold;
-    if (goalMetric) CA.goalMetric = goalMetric;
-    if (rows && rows.length > 0) return rows;
-    if (pct != null && pct >= 100) return []; // Motion says done, no data
-    await new Promise(r => setTimeout(r, 2500));
-  }
-  return [];
-}
-
-async function caEnrichPick(key) {
-  const pick = CA.picks[key];
-  if (!pick || !pick.creativeEntityId || !pick.creativeOrigin) return;
-  const fmt = pick.creativeFormat || 'video';
-  pick._summaryLoading = true;
-  pick._transcriptLoading = (fmt === 'video');
-  caUpdateSlide(key);
-
-  // Summary (independent — updates slide on its own resolution)
-  caCallMotion('get_creative_summary', {
-    organizationId: CA_ORG_ID, workspaceId: CA_WORKSPACE_ID,
-    creativeEntityId: pick.creativeEntityId,
-    creativeOrigin: pick.creativeOrigin,
-    creativeFormat: fmt
-  }, 22000).then(res => {
-    const layers = [res, res?.data, res?.data?.data].filter(Boolean);
-    pick._summary = layers.find(L => L && (L.summary || L.description || L.body || L.hook || L.format)) || layers[layers.length - 1] || null;
-  }).catch(e => {
-    pick._summaryError = e?.message || String(e);
-    console.warn('summary failed for', key, e);
-  }).finally(() => {
-    pick._summaryLoading = false;
-    caUpdateSlide(key);
-  });
-
-  // Transcript (independent — only for video)
-  if (fmt === 'video') {
-    caCallMotion('get_creative_transcript', {
-      workspaceId: CA_WORKSPACE_ID,
-      creativeEntityId: pick.creativeEntityId,
-      creativeOrigin: pick.creativeOrigin,
-      creativeFormat: 'video'
-    }, 22000).then(res => {
-      const layers = [res, res?.data, res?.data?.data].filter(Boolean);
-      pick._transcript = layers.find(L => L && (L.transcript || L.firstSeconds || L.hook)) || layers[layers.length - 1] || null;
-    }).catch(e => {
-      pick._transcriptError = e?.message || String(e);
-      console.warn('transcript failed for', key, e);
-    }).finally(() => {
-      pick._transcriptLoading = false;
-      caUpdateSlide(key);
-    });
-  }
-}
-
-async function caLoadAnalysis() {
-  if (CA.loading) return;
-  CA.loading = true;
-  CA.error = null;
-  CA.loaded = false;
-  CA.lastError = null;
-  CA.pollAttempt = 0;
-  CA.pollPct = 0;
-  CA.picks = { best: null, underrated: null, worst: null };
-  caRender();
-  try {
-    const insights = await caFetchInsightsWithPolling();
-    if (!insights || insights.length === 0) {
-      throw new Error(
-        'Motion returned no creatives after ' + CA.pollAttempt + ' polls (last %: ' + CA.pollPct +
-        '). Most likely: the report is still computing on Motion\'s side — wait 30s and Refresh. ' +
-        (CA.lastError ? 'Last call error: ' + CA.lastError : '')
-      );
-    }
-    CA.insights = insights;
-    CA.picks = caPickThree(insights);
-    // Step 2: render shell IMMEDIATELY with KPI cards + skeleton reasoning
-    CA.loaded = true;
-    CA.loading = false;
-    caRender();
-    // Step 3: kick off enrichment for each pick INDEPENDENTLY (no await — let them resolve as they go)
-    ['best', 'underrated', 'worst'].forEach(k => { if (CA.picks[k]) caEnrichPick(k); });
-  } catch (e) {
-    console.error('Creative analysis failed', e);
-    CA.error = e?.message || String(e);
-    CA.loading = false;
-    CA.loaded = false;
-    caRender();
-  }
-}
-
-// Targeted update — replace one slide's reasoning card without re-rendering the slideshow
-function caUpdateSlide(key) {
-  const slideEl = document.querySelector('.ca-slide[data-slide-key="' + key + '"]');
-  if (!slideEl) { caRender(); return; }
-  const reasoning = slideEl.querySelector('.ca-reasoning');
-  if (!reasoning) return;
-  const newHtml = caRenderReasoning(CA.picks[key]);
-  const tmp = document.createElement('div');
-  tmp.innerHTML = newHtml;
-  const replacement = tmp.firstElementChild;
-  if (replacement) reasoning.replaceWith(replacement);
-}
-
-function caRenderReasoning(pick) {
-  if (!pick) return '<div class="ca-reasoning"><h4>Reasoning</h4></div>';
-  const summary = pick._summary || {};
-  const transcript = pick._transcript || {};
-  const summaryText = summary.summary || summary.description || summary.body || '';
-  const hookText = summary.hook || summary.hooks
-    || transcript.firstSeconds || transcript.hook
-    || (Array.isArray(transcript.transcript) && transcript.transcript[0]?.text)
-    || '';
-  const ctas = summary.ctas || summary.callsToAction || summary.cta || [];
-  const ctasArr = Array.isArray(ctas) ? ctas : (typeof ctas === 'string' && ctas ? [ctas] : []);
-  const subtitle = (pick.campaignName ? pick.campaignName + ' · ' : '') + (pick.adsetName || '');
-
-  const sLoading = !!pick._summaryLoading;
-  const tLoading = !!pick._transcriptLoading;
-  const sErr = pick._summaryError;
-  const tErr = pick._transcriptError;
-
-  let body = '';
-  if (sLoading && !summaryText) {
-    body += '<div style="color: var(--muted); font-style: italic; display:flex; align-items:center; gap:8px;"><span class="spinner" style="width:11px;height:11px;border:1.5px solid rgba(201,164,90,0.25);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:chatSpin 0.85s linear infinite;"></span>fetching AI summary…</div>';
-  } else if (summaryText) {
-    body += '<div>' + safeText(summaryText) + '</div>';
-  } else if (sErr) {
-    body += '<div style="color: var(--neg); font-size: 11px;">summary error: ' + safeText(sErr) + '</div>';
-  } else {
-    body += '<div style="color: var(--muted); font-style: italic;">No AI summary returned by Motion. May still be generating — Refresh in 30s.</div>';
-  }
-
-  if (hookText) {
-    body += '<div class="hook">"' + safeText(String(hookText).slice(0, 240)) + '"</div>';
-  } else if (tLoading) {
-    body += '<div style="color: var(--muted); font-style: italic; margin-top:8px; display:flex; align-items:center; gap:8px;"><span class="spinner" style="width:11px;height:11px;border:1.5px solid rgba(201,164,90,0.25);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:chatSpin 0.85s linear infinite;"></span>fetching transcript hook…</div>';
-  } else if (tErr) {
-    body += '<div style="color: var(--neg); font-size: 11px; margin-top: 6px;">transcript error: ' + safeText(tErr) + '</div>';
-  }
-
-  if (ctasArr.length) {
-    body += '<div style="margin-top: 8px;"><strong style="color: var(--text-2); font-size: 11px;">CTAs:</strong> '
-      + ctasArr.map(c => '<span class="tag" style="margin-left: 4px;">' + safeText(String(c)) + '</span>').join(' ')
-      + '</div>';
-  }
-  body += '<div style="margin-top: 10px; font-size: 11px; color: var(--muted);">' + safeText(subtitle) + '</div>';
-
-  return '<div class="ca-reasoning"><h4>What it depicts · why it works</h4>' + body + '</div>';
-}
-
-function caRender() {
-  const wrap = document.getElementById('ca-content');
-  const hint = document.getElementById('ca-hint');
-  if (!wrap) return;
-
-  if (CA.loading) {
-    // Build the loading shell ONCE; subsequent updates use caUpdateLoadingProgress (text-only, no flicker).
-    if (!document.getElementById('ca-loading-progress')) {
-      wrap.innerHTML = `
-        <div id="ca-loading-shell" style="display: flex; align-items: center; justify-content: center; padding: 50px 20px; color: var(--muted); font-size: 12px; gap: 12px; flex-direction: column;">
-          <span class="spinner" style="width:18px;height:18px;border:1.5px solid rgba(201,164,90,0.25);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:chatSpin 0.85s linear infinite;"></span>
-          <div style="text-align:center;">analysing 30d of paid creative performance…</div>
-          <div id="ca-loading-progress" style="font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums;"></div>
-          <div id="ca-loading-error" style="font-size: 10.5px; color: var(--neg); max-width: 480px; text-align: center; display: none;"></div>
-        </div>`;
-    }
-    caUpdateLoadingProgress();
-    return;
-  }
-  if (CA.error) {
-    if (hint) hint.textContent = 'error';
-    wrap.innerHTML = `
-      <div class="error">${safeText(CA.error)}</div>
-      <div style="margin-top: 10px;"><button class="ctrl-btn" id="ca-retry-btn">Retry</button></div>`;
-    document.getElementById('ca-retry-btn')?.addEventListener('click', caLoadAnalysis);
-    return;
-  }
-  if (!CA.loaded) {
-    // initial empty state — leave the original prompt + Load button alone
-    return;
-  }
-
-  const slides = [
-    { key: 'best',       label: 'Best performer',         tagClass: 'best',       pick: CA.picks.best },
-    { key: 'underrated', label: 'Underrated powerhouse',  tagClass: 'underrated', pick: CA.picks.underrated },
-    { key: 'worst',      label: 'Worst performer',        tagClass: 'worst',      pick: CA.picks.worst }
-  ].filter(s => s.pick);
-
-  if (slides.length === 0) {
-    wrap.innerHTML = '<div class="empty">Couldn\'t pick 3 creatives — not enough significant spend in last 30d.</div>';
-    return;
-  }
-
-  if (hint) hint.textContent = 'goal: ' + CA.goalMetric.toUpperCase() + ' · spend threshold: €' + CA.spendThreshold.toFixed(0) + ' · ' + CA.insights.length + ' creatives in window';
-
-  const slidesHtml = slides.map((s, idx) => caRenderSlide(s, idx === CA.currentSlide)).join('');
-  const dotsHtml = slides.map((s, idx) =>
-    `<button class="ca-dot ${idx === CA.currentSlide ? 'active' : ''}" data-slide="${idx}" aria-label="${s.label}"></button>`
-  ).join('');
-
-  const slideWidthPct = (100 / slides.length).toFixed(4);
-  const trackWidthPct = (slides.length * 100).toString();
-  wrap.innerHTML = `
-    <div class="ca-slideshow">
-      <div class="ca-track" style="transform: translateX(-${(CA.currentSlide * 100 / slides.length).toFixed(4)}%); width: ${trackWidthPct}%; --ca-slide-width: ${slideWidthPct}%;">
-        ${slidesHtml}
-      </div>
-    </div>
-    <div class="ca-nav">
-      <button class="ca-nav-btn" id="ca-prev" ${CA.currentSlide === 0 ? 'disabled' : ''}>← Prev</button>
-      <div class="ca-dots">${dotsHtml}</div>
-      <button class="ca-nav-btn" id="ca-next" ${CA.currentSlide === slides.length - 1 ? 'disabled' : ''}>Next →</button>
-    </div>
-    <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-      <button class="ctrl-btn" id="ca-refresh-btn" title="Re-run analysis">Refresh creatives</button>
-    </div>`;
-
-  document.getElementById('ca-prev')?.addEventListener('click', () => caGoToSlide(CA.currentSlide - 1));
-  document.getElementById('ca-next')?.addEventListener('click', () => caGoToSlide(CA.currentSlide + 1));
-  document.getElementById('ca-refresh-btn')?.addEventListener('click', caLoadAnalysis);
-  wrap.querySelectorAll('.ca-dot').forEach(d => {
-    d.addEventListener('click', () => caGoToSlide(Number(d.dataset.slide)));
-  });
-}
-
-function caRenderSlide(s, isActive) {
-  const pick = s.pick;
-  const spend = caGetMetric(pick, 'spend');
-  const roas  = caGetMetric(pick, 'roas');
-  const ctr   = caGetMetric(pick, 'ctr_all') || caGetMetric(pick, 'ctr');
-  const hook  = caGetMetric(pick, 'thumbstop_ratio') || caGetMetric(pick, 'hook_rate');
-  const purchases = caGetMetric(pick, 'purchases');
-
-  const title = pick.adName || pick.campaignName || 'unnamed creative';
-  const pubUrl = pick.pubUrl || pick._pubUrl || pick.media?.pubUrl;
-  const adFormat = (pick._summary && (pick._summary.format || pick._summary.adFormat)) || pick.creativeFormat || 'video';
-  const isVideo = adFormat === 'video' ||
-                  (pubUrl && /\.(mp4|webm|mov)(\?|$)/i.test(pubUrl)) ||
-                  (pick.creativeOrigin || '').toLowerCase().indexOf('video') >= 0;
-
-  let mediaHtml;
-  if (pubUrl && isVideo) {
-    mediaHtml = `<video src="${safeText(pubUrl)}" controls preload="metadata" playsinline style="background:#000"></video>`;
-  } else if (pubUrl) {
-    mediaHtml = `<img src="${safeText(pubUrl)}" alt="creative">`;
-  } else {
-    mediaHtml = `
-      <div class="ca-video-fallback">
-        <div>No preview URL returned</div>
-        <a href="https://projects.motionapp.com/organization/${CA_ORG_ID}/${CA_WORKSPACE_ID}" target="_blank" rel="noopener">Open in Motion ↗</a>
-      </div>`;
-  }
-
-  return `
-    <div class="ca-slide" data-slide-key="${s.key}">
-      <div class="ca-slide-header">
-        <span class="ca-slide-tag ${s.tagClass}">${s.label}</span>
-        <span class="ca-slide-title" title="${safeText(title)}">${safeText(title)}</span>
-      </div>
-      <div class="ca-video-wrap">${mediaHtml}</div>
-      <div class="ca-kpi-strip">
-        <div class="ca-kpi"><div class="ca-kpi-label">ROAS</div><div class="ca-kpi-value" style="color: ${roas >= 2 ? 'var(--pos)' : roas >= 1 ? 'var(--warn)' : 'var(--neg)'};">${roas ? roas.toFixed(2) + 'x' : '—'}</div></div>
-        <div class="ca-kpi"><div class="ca-kpi-label">Spend</div><div class="ca-kpi-value">${spend ? '€' + Math.round(spend) : '—'}</div></div>
-        <div class="ca-kpi"><div class="ca-kpi-label">CTR</div><div class="ca-kpi-value">${ctr ? (ctr * 100).toFixed(2) + '%' : '—'}</div></div>
-        <div class="ca-kpi"><div class="ca-kpi-label">Hook</div><div class="ca-kpi-value">${hook ? (hook * 100).toFixed(1) + '%' : '—'}</div></div>
-        <div class="ca-kpi"><div class="ca-kpi-label">Purchases</div><div class="ca-kpi-value">${purchases ? Math.round(purchases) : '—'}</div></div>
-      </div>
-      ${caRenderReasoning(pick)}
-    </div>`;
-}
-
-function caGoToSlide(idx) {
-  CA.currentSlide = Math.max(0, Math.min(2, idx));
-  caRender();
-}
 
 function renderPosts() {
   const grid = document.getElementById('posts-grid');
@@ -3270,16 +3400,17 @@ function renderPosts() {
   const r = STATE.cache.postsRange;
   if (hint && r) hint.textContent = 'Metricool · ' + (r.fallback ? 'today not available · showing yesterday' : r.label);
   if (!items.length) {
-    grid.innerHTML = '<div class="empty">No IG reels or TT videos in the selected window.</div>';
+    setHtmlIfChanged('posts-grid', '<div class="empty">No IG reels or TT videos in the selected window.</div>');
     if (note) note.textContent = '';
     return;
   }
   if (note) {
-    note.innerHTML = (r && r.fallback)
+    const noteHtml = (r && r.fallback)
       ? '<span style="color: var(--warn);">●</span> Metricool API lags ~24h. Showing yesterday\'s posts; today\'s metrics aren\'t exposed yet.'
       : '<span style="color: var(--muted);">●</span> Posts published in the selected range. Most-recent day may still be settling.';
+    setHtmlIfChanged('posts-note', noteHtml);
   }
-  grid.innerHTML = items.map(it => {
+  const gridHtml = items.map(it => {
     const cls = it.net === 'IG' ? 'ig' : 'tt';
     const tlabel = it.timeIso ? new Intl.DateTimeFormat('en-GB', { timeZone: SHOP_TZ, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(it.timeIso)) : '—';
     const fmt = (s) => s.fmt === 'int' ? fmtInt(s.val) : (s.fmt === 'pct' ? fmtPctRaw(s.val, 2) : String(s.val));
@@ -3302,6 +3433,7 @@ function renderPosts() {
         </div>
       </div>`;
   }).join('');
+  setHtmlIfChanged('posts-grid', gridHtml);
 }
 
 function renderFunnel() {
@@ -3329,87 +3461,47 @@ function renderVolumeChart() {
   const orderSeries = v.sRows.map(row => ordersByKey[row[0]] || 0);
   const revSeries = v.sRows.map(row => revByKey[row[0]] || 0);
 
-  document.getElementById('volume-hint').textContent = (isHour ? 'hourly · ' : 'daily · ') + r.label;
-
-  const ctx = document.getElementById('volume-chart').getContext('2d');
-  if (STATE.charts.volume) { STATE.charts.volume.destroy(); STATE.charts.volume = null; }
+  const volumeHint = document.getElementById('volume-hint');
+  if (volumeHint) volumeHint.textContent = (isHour ? 'hourly · ' : 'daily · ') + r.label;
 
   const orderPointData = sessSeries.map((s, i) => orderSeries[i] > 0 ? s : null);
+  const orderPointRadius = (c) => { const o = orderSeries[c.dataIndex]; return o ? 5 + Math.min(10, o * 1.8) : 0; };
+  const orderPointHover  = (c) => { const o = orderSeries[c.dataIndex]; return o ? 7 + Math.min(12, o * 1.8) : 0; };
+  const tooltipLabel = (c) => {
+    const i = c.dataIndex;
+    const lines = [' Sessions: ' + fmtInt(sessSeries[i])];
+    if (orderSeries[i] > 0) lines.push(' Orders: ' + fmtInt(orderSeries[i]));
+    if (revSeries[i] > 0) lines.push(' Revenue: ' + fmtMoney(revSeries[i]));
+    return lines;
+  };
 
-  STATE.charts.volume = new Chart(ctx, {
+  ChartManager.render('volume-chart', () => ({
     type: 'line',
     data: {
       labels,
       datasets: [
-        {
-          label: 'Sessions',
-          data: sessSeries,
-          borderColor: '#c9a45a',
-          backgroundColor: 'transparent',
-          tension: 0,
-          fill: false,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          pointBackgroundColor: '#c9a45a',
-          pointBorderColor: '#16130f',
-          pointBorderWidth: 2,
-          borderWidth: 1.6,
-          order: 2
-        },
-        {
-          label: 'Orders',
-          data: orderPointData,
-          borderColor: 'transparent',
-          backgroundColor: '#22c55e',
-          showLine: false,
-          pointRadius: function(c) { const o = orderSeries[c.dataIndex]; return o ? 5 + Math.min(10, o * 1.8) : 0; },
-          pointHoverRadius: function(c) { const o = orderSeries[c.dataIndex]; return o ? 7 + Math.min(12, o * 1.8) : 0; },
-          pointBackgroundColor: '#22c55e',
-          pointBorderColor: '#16130f',
-          pointBorderWidth: 2,
-          spanGaps: false,
-          order: 1
-        }
+        { label: 'Sessions', data: sessSeries, borderColor: '#c9a45a', backgroundColor: 'transparent', tension: 0, fill: false, pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: '#c9a45a', pointBorderColor: '#16130f', pointBorderWidth: 2, borderWidth: 1.6, order: 2 },
+        { label: 'Orders', data: orderPointData, borderColor: 'transparent', backgroundColor: '#22c55e', showLine: false, pointRadius: orderPointRadius, pointHoverRadius: orderPointHover, pointBackgroundColor: '#22c55e', pointBorderColor: '#16130f', pointBorderWidth: 2, spanGaps: false, order: 1 }
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          backgroundColor: '#16130f',
-          borderColor: '#3a352d',
-          borderWidth: 1,
-          titleColor: '#c9a45a',
-          bodyColor: '#ebe4d3',
-          padding: 10,
-          displayColors: false,
-          filter: function(item) { return item.datasetIndex === 0; },
-          callbacks: {
-            label: function(c) {
-              const i = c.dataIndex;
-              const lines = [' Sessions: ' + fmtInt(sessSeries[i])];
-              if (orderSeries[i] > 0) lines.push(' Orders: ' + fmtInt(orderSeries[i]));
-              if (revSeries[i] > 0) lines.push(' Revenue: ' + fmtMoney(revSeries[i]));
-              return lines;
-            }
-          }
-        }
+        tooltip: { backgroundColor: '#16130f', borderColor: '#3a352d', borderWidth: 1, titleColor: '#c9a45a', bodyColor: '#ebe4d3', padding: 10, displayColors: false, filter: (item) => item.datasetIndex === 0, callbacks: { label: tooltipLabel } }
       },
       scales: {
-        x: {
-          ticks: { font: { size: 10 }, color: '#8e8474', autoSkip: true, maxRotation: 0 },
-          grid: { display: false }
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { font: { size: 10 }, color: '#8e8474', precision: 0 },
-          grid: { color: 'rgba(58, 53, 45, 0.45)', drawBorder: false }
-        }
+        x: { ticks: { font: { size: 10 }, color: '#8e8474', autoSkip: true, maxRotation: 0 }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { font: { size: 10 }, color: '#8e8474', precision: 0 }, grid: { color: 'rgba(58, 53, 45, 0.45)', drawBorder: false } }
       }
     }
+  }), (chart) => {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = sessSeries;
+    chart.data.datasets[1].data = orderPointData;
+    chart.data.datasets[1].pointRadius      = orderPointRadius;
+    chart.data.datasets[1].pointHoverRadius = orderPointHover;
+    chart.options.plugins.tooltip.callbacks.label = tooltipLabel;
   });
 }
 
@@ -3524,13 +3616,18 @@ function setRefreshLoading(on) {
 }
 
 let _refreshing = false;
-async function refresh() {
+async function refresh(opts) {
+  opts = opts || {};
+  const userInitiated = opts.userInitiated === true;
   if (_refreshing) return;
   _refreshing = true;
   setFreshness('loading');
   startFabLoading(2800);
-  setRefreshLoading(true);
-  atlasLog('info', 'refresh', 'starting');
+  // Only show the heavy overlay spinners for user-initiated refreshes
+  // (manual refresh, date range change). Auto-refresh runs invisibly —
+  // freshness pill in the topbar is enough signal for that.
+  if (userInitiated) setRefreshLoading(true);
+  atlasLog('info', 'refresh', userInitiated ? 'starting (user)' : 'starting (auto)');
   try {
     const data = await fetchAll();
     const errs = checkErrors(data);
@@ -3558,7 +3655,7 @@ async function refresh() {
     atlasLog('error', 'refresh', e?.message || String(e));
     setFreshness('error');
   } finally {
-    setRefreshLoading(false);
+    if (userInitiated) setRefreshLoading(false);
     stopFabLoading();
     _refreshing = false;
     atlasLog('info', 'refresh', 'completed in ' + (Date.now() - (STATE.lastRefreshedAt?.getTime() || Date.now())) + 'ms');
@@ -3590,7 +3687,7 @@ function setRange(r) {
   if (r !== 'custom') {
     try { localStorage.setItem('cairo_utm_range', r); } catch (e) {}
     invalidateSuggestions();
-    refresh().then(() => {
+    refresh({ userInitiated: true }).then(() => {
       if (CHAT.history.length === 0) ensureSuggestions();
       if (!STATE.paused) scheduleNext();
     });
@@ -3778,7 +3875,7 @@ function dpApply() {
   closeDatePicker();
   updateDateLabel();
   invalidateSuggestions();
-  refresh().then(() => {
+  refresh({ userInitiated: true }).then(() => {
     if (CHAT.history.length === 0) ensureSuggestions();
     if (!STATE.paused) scheduleNext();
   });
@@ -3834,7 +3931,7 @@ async function manualRefresh() {
     return;
   }
   _lastManualRefreshAt = now;
-  await refresh();
+  await refresh({ userInitiated: true });
   if (!STATE.paused) scheduleNext();
 }
 on('refresh-btn', 'click', manualRefresh);
@@ -4229,10 +4326,7 @@ window.CairoAtlas = {
     updateDateLabel();
   });
 
-  // 3. lazy-load Creative Analysis (heavy — 7+ API calls — manual trigger)
-  on('ca-load-btn', 'click', caLoadAnalysis);
-
-  // 4. restore chat from localStorage + apply size prefs
+  // 3. restore chat from localStorage + apply size prefs
   safeRender('init.chat', () => {
     loadChat();
     setChatTextSize(CHAT.textSize);
@@ -4241,6 +4335,45 @@ window.CairoAtlas = {
 
   // 5. paint the empty log panel so users see "No logs yet."
   safeRender('init.errorLog', renderErrorLog);
+
+  // 5a. wire layout reset button (escape hatch in case user drags into a mess)
+  safeRender('init.layoutReset', () => {
+    on('layout-reset-btn', 'click', () => {
+      if (confirm('Reset all dragged metric blocks back to their original positions?')) {
+        LayoutManager.reset();
+      }
+    });
+  });
+
+  // 5b. inject info-icon tooltips into static section headers (one-time, after DOM ready)
+  safeRender('init.infoIcons', () => {
+    const inject = (id, ico) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      // Insert the icon right after the first text node (before any hint span)
+      const hint = el.querySelector('.hint, .info-icon');
+      const html = ico;
+      if (hint) {
+        hint.insertAdjacentHTML('beforebegin', html);
+      } else {
+        el.insertAdjacentHTML('beforeend', ' ' + html);
+      }
+    };
+    inject('volume-h3',       infoIcon('volume_chart'));
+    inject('channel-h3',      infoIcon('channel_bucketing'));
+    inject('campaigns-h3',    infoIcon('top_campaigns'));
+    inject('matrix-h3',       infoIcon('matrix'));
+    inject('coverage-h3',     infoIcon('utm_coverage'));
+    inject('funnel-h3',       infoIcon('funnel_drop'));
+    inject('reach-donut-h3',  infoIcon('reach_total'));
+    inject('post-bars-h3',    infoIcon('engagement_rate'));
+    inject('tt-audience-h3',  infoIcon('follower_split'));
+  });
+
+  // 5c. boot the LayoutManager — applies saved drag order + wires drag handlers
+  // on every [data-slot] element. Idempotent — safe to re-run, but we only call
+  // it once at boot since refresh() never recreates slot containers.
+  safeRender('init.layout', () => LayoutManager.init());
 
   // 6. boot complete — kick off the first refresh + auto-refresh loop
   atlasLog('info', 'init', 'CĀIRO Atlas v0.1 booted');
