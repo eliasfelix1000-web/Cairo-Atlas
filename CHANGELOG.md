@@ -6,6 +6,38 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/) but loosened:
 
 ---
 
+## 2026-05-06 (late) — Open-source restructure: Cairo AI Cowork artifact starter
+
+The repo positioning shifted from "G's private dashboard fix log" to **Cairo AI's open-source Cowork artifact starter**, with CĀIRO Atlas as the example app. The first cold-clone (G pulling onto a fresh laptop and standing it up in Cowork) would have hit ~20 silent failure modes — most fatally, hardcoded MCP UUIDs that don't match a fresh Cowork project. This release closes those gaps in code, docs, and repo hygiene so the cold-clone path is rust-level confident.
+
+### Added
+- **`ATLAS_CONFIG`** — frozen object near the top of the dashboard script. One place to edit when forking: MCP tool names (Shopify / Metricool IG+TT / Motion CA insights+summary+transcript), `metricoolBlogId`, `shopTz`, `storagePrefix`. Existing `TOOL_SHOPIFY` / `TOOL_IG_REELS` / `TOOL_TT_VIDEOS` / `METRICOOL_BLOG_ID` / `SHOP_TZ` are now thin aliases off the config so no call site changes. Exposed as `window.ATLAS_CONFIG`.
+- **`__atlasBanner(id, level, html)`** — fixed-position top-of-page banners injected directly into `<body>`. For things the user must see even if the rest of the dashboard never paints (missing Cowork runtime, Chart.js CDN failure). Stacks vertically, dismissable, idempotent.
+- **`probeCoworkRuntime()`** — runs from the init IIFE. Banners visible breakage when `window.cowork.callMcpTool` or `Chart` is missing instead of letting silent failure look like "blank dashboard forever".
+- **`callTool` runtime guard** — short-circuits with a friendly `__error` payload when `window.cowork` is absent, instead of throwing on `undefined`.
+- **Chart.js `onerror` hook** — sets `window.__atlasChartLoadFailed` so the boot probe can banner CDN failures without a page crash.
+- **`.gitattributes`** — forces LF on every text file. Prevents the JSON `cowork-artifact-meta` block from breaking on Windows ↔ Mac re-clones (autocrlf can leave a trailing `\r` that some runtimes refuse to parse).
+- **`.editorconfig`** — indent / charset / line-ending alignment without language-specific tooling install.
+- **`LICENSE`** — MIT. Repo flips from "private, all rights reserved" to open-source-by-default.
+
+### Changed
+- **README.md** rewritten as a public open-source landing. 30-second pitch, demo screenshot, "Run it cold" numbered runbook (clone → Claude Code → Cowork upload → MCP connect → UUID swap → live), required-MCP-servers table with custom-Metricool path, diagnostic command list, alternatives, MIT call-out, Cairo AI credit line.
+- **STACK.md** rewritten with explicit "Swapping MCP UUIDs" procedure (the #1 cold-clone failure), a custom-Metricool install section (pointing at `https://ai.metricool.com/mcp` for both Claude.ai web and Claude Code), an "Alternatives by category" table, and a top-level Troubleshooting table mapping symptoms → fixes.
+- **ARCHITECTURE.md** rewritten to reflect the actual procedural / module-singleton structure. The `window.CairoAtlas` class facade is recast as a one-paragraph devtools navigability aid at the bottom of the doc — not the spine. Module map now lists `ATLAS`, `STATE`, `ChartManager`, `LayoutManager`, `CA`, `DR`, `CHAT` as the singletons they are.
+- **CLAUDE.md** restructured into a two-audience contract. Generic-clone subcontract (don't assume auto-memory, don't assume preferences, walk the user through MCP UUID swap on first task) is the default. G-specific content (CĀIRO business context, four-hats role, daily-log, auto-memory path) is fenced under a "G-specific context" section that external clones can ignore.
+
+### Removed
+- Internal-handoff voice across the docs ("what I (Claude Opus 4.7) learned arriving", "the next Claude session", "OOP refactor" framing as architecture). Substance migrated where it still belongs: the load-fix history stayed in the prior CHANGELOG entry, the "what's still risky" list moved to ARCHITECTURE.md → "Known sharp edges" with neutral voice, the "what I added" went into the prior CHANGELOG entry's prose.
+- README's "Status: v0.1 — patched" + "Private project. All rights reserved." stale framing.
+- STACK's "surgical class facade" phrasing.
+
+### Open questions still on G
+- Whether `https://github.com/eliasfelix1000-web/Cairo-Atlas.git` is set to public yet. Hardcoded `metricoolBlogId` and Cowork-project-bound MCP UUIDs effectively ship author-specific identifiers if it is.
+- Whether `.settings-panel` CSS without markup is dead code or a planned feature (still flagged in ARCHITECTURE → "Known sharp edges").
+- Whether Cowork's CSP allows `cdn.jsdelivr.net` in all environments. If not, vendor Chart.js inline (procedure documented in STACK → "Troubleshooting").
+
+---
+
 ## 2026-05-06 (PM) — Layout architecture refactor + drag-and-drop
 
 The dashboard was accreting features faster than the base could absorb them — every new metric required edits in three places (HTML element, CSS grid column count, renderer wiring), and rudimentary bugs (chart cache against detached canvas, sub-line clipped tooltips) kept reappearing. This release moves the foundation from imperative DOM mutation to slot discovery + lifecycle-managed charts.
